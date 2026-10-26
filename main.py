@@ -252,6 +252,40 @@ conversation_histories: dict[str, dict] = {}
 
 pending_carrier_reviews: dict[str, dict] = {}
 
+# Which MC (USDOT) each conversation is currently working on. Memory is
+# scoped to one carrier: when the conversation moves on to another MC,
+# everything remembered about the previous one is deleted.
+conversation_carriers: dict[str, str] = {}
+
+
+def clear_conversation_memory(
+    conversation_id: str,
+    reason: str = "carrier_finished",
+) -> bool:
+    """Forget a conversation entirely (it finished working with its MC).
+
+    Removes the message history, any pending review, and the carrier
+    marker, so the next MC starts with a clean slate. Returns True if
+    anything was actually removed.
+    """
+    removed = False
+    for store in (
+        conversation_histories,
+        pending_carrier_reviews,
+        conversation_carriers,
+    ):
+        if store.pop(conversation_id, None) is not None:
+            removed = True
+
+    if removed:
+        log_event(
+            "conversation_memory_cleared",
+            conversation_id=conversation_id,
+            reason=reason,
+        )
+
+    return removed
+
 
 def get_history(conversation_id: str) -> list[dict[str, str]]:
     """Return a valid, recently active history list for this conversation."""
@@ -265,6 +299,7 @@ def get_history(conversation_id: str) -> list[dict[str, str]]:
         if entry is not None:
             # The conversation expired: its pending review is stale.
             pending_carrier_reviews.pop(conversation_id, None)
+            conversation_carriers.pop(conversation_id, None)
 
         entry = {"messages": [], "last_active": now}
         conversation_histories[conversation_id] = entry
@@ -278,6 +313,7 @@ def get_history(conversation_id: str) -> list[dict[str, str]]:
         for key in expired:
             conversation_histories.pop(key, None)
             pending_carrier_reviews.pop(key, None)
+            conversation_carriers.pop(key, None)
 
     entry["last_active"] = now
     return entry["messages"]
@@ -998,6 +1034,28 @@ def stream_voice(request: StreamVoiceRequest):
                 carrier_context = "Carrier information is temporarily unavailable."
 
             
+            # Memory is scoped to the MC under review. When this
+            # conversation moves to a different carrier, forget the
+            # previous one so details never get mixed up.
+            if current_usdot_number is not None:
+                current_carrier = str(current_usdot_number)
+                previous_carrier = conversation_carriers.get(
+                    request.conversation_id
+                )
+
+                if (
+                    previous_carrier is not None
+                    and previous_carrier != current_carrier
+                ):
+                    clear_conversation_memory(
+                        request.conversation_id,
+                        reason="carrier_switched",
+                    )
+
+                conversation_carriers[request.conversation_id] = (
+                    current_carrier
+                )
+
             # Get this conversation's previous messages.
             history = get_history(request.conversation_id)
             
@@ -1020,6 +1078,7 @@ def stream_voice(request: StreamVoiceRequest):
             
             
             review_action_message = ""
+            memory_cleared_this_turn = False
 
             command = normalize_command(request.message)
 
@@ -1085,6 +1144,14 @@ def stream_voice(request: StreamVoiceRequest):
                         )
 
                         pending_carrier_reviews.pop(request.conversation_id, None)
+
+                        # The review is saved: this MC is done, so its
+                        # conversation memory is deleted automatically.
+                        clear_conversation_memory(
+                            request.conversation_id,
+                            reason="carrier_review_saved",
+                        )
+                        memory_cleared_this_turn = True
 
                         review_action_message = (
                             f"{save_result['message']} Tell the user the actual result."
@@ -1231,16 +1298,19 @@ def stream_voice(request: StreamVoiceRequest):
             if assistant_reply:
                 # Save the turn only after the reply fully succeeded,
                 # so failed generations do not pollute the history.
-                history.append({
-                    "role": "user",
-                    "content": request.message,
-                })
-                history.append({
-                    "role": "assistant",
-                    "content": assistant_reply,
-                })
+                # If the finished MC's memory was just cleared, stay
+                # clean instead of writing this closing turn back.
+                if not memory_cleared_this_turn:
+                    history.append({
+                        "role": "user",
+                        "content": request.message,
+                    })
+                    history.append({
+                        "role": "assistant",
+                        "content": assistant_reply,
+                    })
 
-                save_history(request.conversation_id, history)
+                    save_history(request.conversation_id, history)
 
             print("STREAM COMPLETED")
 
@@ -1927,6 +1997,13 @@ def get_next_carrier(conversation_id: str):
 
                 columns = [desc.name for desc in cur.description]
                 carrier = dict(zip(columns, row))
+
+                # A fresh MC was reserved: the previous carrier's
+                # conversation memory is no longer relevant.
+                clear_conversation_memory(
+                    conversation_id,
+                    reason="new_carrier_reserved",
+                )
 
                 return {
                     "found": True,
