@@ -87,6 +87,19 @@ python -m pytest tests -q
 | `POST /pipeline/upload` | Start a pipeline run on a PDF (admin token required) |
 | `GET /pipeline/status/{id}` | Live progress/logs of a pipeline run (admin) |
 | `GET /pipeline/leads/{id}` | Qualified leads of a finished run (admin) |
+| `POST /assistant` | Operator chatbot: runs whitelisted actions (admin) |
+
+#### Operator assistant (chatbot)
+
+The pipeline page has an assistant panel at the top. It converts a plain
+instruction into one whitelisted action and executes it: `metrics`,
+`search_carriers`, `next_carrier`, `save_review`, `pipeline_status`,
+`pipeline_leads`, `export_excel`, and `help`. It refuses — before any
+model or database work — requests to delete/drop data, place a real
+phone call, or spend money. There are no destructive, billing, or
+live-calling actions in the whitelist. `POST /assistant` requires the
+admin token and is logged as `assistant_action` (or
+`assistant_action_refused`).
 
 #### Carrier pipeline UI (`/pipeline`)
 
@@ -104,11 +117,12 @@ modified by a UI run unless you explicitly enable the import stage.
 All admin/data endpoints (`/metrics`, `/carriers/search`,
 `/eligible-carriers`, `/next-carrier`, `/carrier-reviews`,
 `/carrier-call-attempts`, `/mock-call`, `/export-excel`,
-`/pipeline/upload`, `/pipeline/status/*`, `/pipeline/leads/*`) require
-`Authorization: Bearer <ADMIN_API_TOKEN>`. They fail closed (HTTP 503)
-when the token is not configured. Voice/chat endpoints, `/pipeline`
-page, `/dashboard` page, and `/health` are public and never need the
-token (the data behind the dashboard/pipeline pages do).
+`/pipeline/upload`, `/pipeline/status/*`, `/pipeline/leads/*`,
+`/assistant`) require `Authorization: Bearer <ADMIN_API_TOKEN>`. They
+fail closed (HTTP 503) when the token is not configured. Voice/chat
+endpoints, `/pipeline` page, `/dashboard` page, and `/health` are public
+and never need the token (the data behind the dashboard/pipeline pages
+do).
 
 ## Lead lifecycle and outbound calling safety
 

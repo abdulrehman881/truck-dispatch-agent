@@ -48,7 +48,7 @@
   .drop.over { border-color: var(--accent); background: #1a2438; }
   .drop strong { color: var(--text); }
   .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 16px; }
-  input[type="password"], input[type="number"] {
+  input[type="password"], input[type="number"], input[type="text"] {
     background: var(--panel-2);
     border: 1px solid var(--border);
     color: var(--text);
@@ -117,6 +117,33 @@
   .stat .num { font-size: 1.4rem; font-weight: 700; }
   .stat .lbl { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
   .hidden { display: none; }
+  /* assistant */
+  .assistant .chat {
+    display: flex; flex-direction: column; gap: 10px;
+    max-height: 320px; overflow-y: auto; padding: 4px 2px;
+  }
+  .msg {
+    max-width: 88%; padding: 10px 13px; border-radius: 12px;
+    font-size: .93rem; line-height: 1.45; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user { align-self: flex-end; background: #24406b; border: 1px solid #33507f; }
+  .msg.bot { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border); }
+  .msg.refused { border-color: #7a3038; background: #2b1a1e; color: #ffb3b8; }
+  .msg.error { border-color: #7a5a24; background: #2a2418; color: #ffd79a; }
+  .msg .who {
+    display: block; font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 4px;
+  }
+  .assistant-row { display: flex; gap: 10px; margin-top: 14px; }
+  .assistant-row input { flex: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip {
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 999px; padding: 6px 13px;
+    font-size: .82rem; font-weight: 500; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
 </style>
 </head>
 <body>
@@ -125,6 +152,27 @@
   <p class="sub">Upload an FMCSA registration PDF → the agent extracts carriers, classifies
   them, verifies against the official FMCSA API, scores &amp; qualifies every lead,
   and (optionally) imports them to the database. Live progress below.</p>
+
+  <!-- Operator assistant -->
+  <div class="card assistant">
+    <h2 style="font-size:1.15rem;margin:0 0 4px">🤖 Operator assistant</h2>
+    <p class="muted" style="margin:0 0 14px;font-size:.88rem">
+      Ask it to run the app's normal operator actions. It never deletes data,
+      never places real phone calls, and never spends money.
+    </p>
+    <div class="chat" id="chat"></div>
+    <div class="chips" id="chips">
+      <button type="button" class="chip" data-msg="Show metrics">Show metrics</button>
+      <button type="button" class="chip" data-msg="Pipeline status">Pipeline status</button>
+      <button type="button" class="chip" data-msg="Reserve the next carrier">Next carrier</button>
+      <button type="button" class="chip" data-msg="What can you do?">What can you do?</button>
+    </div>
+    <form class="assistant-row" id="assistantForm">
+      <input id="assistantInput" type="text" maxlength="1000"
+             placeholder="e.g. search logistics carriers, show pipeline status, mark 1234567 interested">
+      <button id="assistantSend" type="submit">Send</button>
+    </form>
+  </div>
 
   <!-- Upload -->
   <div class="card">
@@ -358,6 +406,99 @@
       } catch (err) {/* keep polling */}
     }, 1000);
   }
+
+  // ---- Operator assistant ----
+  const chatEl = document.getElementById("chat");
+  const assistantForm = document.getElementById("assistantForm");
+  const assistantInput = document.getElementById("assistantInput");
+  const assistantSend = document.getElementById("assistantSend");
+
+  // One stable assistant conversation per browser tab, so follow-up
+  // actions (like reserving a carrier) reuse the same session.
+  function assistantConversationId() {
+    let id = sessionStorage.getItem("assistant_conv");
+    if (!id) {
+      id = "ui-" + Math.random().toString(36).slice(2, 10);
+      sessionStorage.setItem("assistant_conv", id);
+    }
+    return id;
+  }
+
+  function addMessage(kind, text) {
+    const div = document.createElement("div");
+    div.className = "msg " + kind;
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = kind === "user" ? "You" : "Assistant";
+    const body = document.createElement("span");
+    body.textContent = text;
+    div.appendChild(who);
+    div.appendChild(body);
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return div;
+  }
+
+  addMessage(
+    "bot",
+    "Hi! I can run metrics, carrier search, carrier reservations, reviews, " +
+    "and pipeline reports for you. I never delete data, place real calls, " +
+    "or spend money."
+  );
+
+  async function askAssistant(text) {
+    const message = (text || "").trim();
+    if (!message) return;
+
+    addMessage("user", message);
+    assistantInput.value = "";
+    assistantSend.disabled = true;
+    const pending = addMessage("bot", "Working…");
+
+    try {
+      const res = await fetch("/assistant", {
+        method: "POST",
+        headers: Object.assign(
+          {"Content-Type": "application/json"},
+          authHeaders()
+        ),
+        body: JSON.stringify({
+          message: message,
+          conversation_id: assistantConversationId(),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      pending.remove();
+
+      if (res.status === 401 || res.status === 503) {
+        addMessage("error", "🔒 " + (body.detail || "Save your admin token above first."));
+        return;
+      }
+      if (!res.ok) {
+        addMessage("error", "Request failed: " + (body.detail || res.status));
+        return;
+      }
+      addMessage(
+        body.action === "refused" ? "refused" : "bot",
+        body.reply || "(no reply)"
+      );
+    } catch (err) {
+      pending.remove();
+      addMessage("error", "Network error: " + err.message);
+    } finally {
+      assistantSend.disabled = false;
+      assistantInput.focus();
+    }
+  }
+
+  assistantForm.onsubmit = (e) => {
+    e.preventDefault();
+    askAssistant(assistantInput.value);
+  };
+
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.onclick = () => askAssistant(chip.dataset.msg);
+  });
 
   // Restore token if this tab already has one
   const saved = sessionStorage.getItem("admin_token");

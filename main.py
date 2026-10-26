@@ -912,6 +912,381 @@ def pipeline_status(job_id: str):
     return job.to_dict()
 
 
+# --------------------------------------------------
+# Operator assistant (chatbot that runs real actions)
+# --------------------------------------------------
+
+class AssistantRequest(BaseModel):
+    """One operator instruction to the assistant."""
+
+    message: str = Field(min_length=1, max_length=1000)
+    conversation_id: str = Field(
+        default="operator-assistant", min_length=1, max_length=100
+    )
+
+
+# Actions the assistant may execute. Everything here is an existing,
+# already-audited application operation. There are no delete/drop/reset
+# actions, no live-calling action, and no spending action by design:
+# "every permission" stops at anything destructive or that could cost
+# money / contact a carrier for real.
+ASSISTANT_ACTIONS = {
+    "help": "Explain what the assistant can do.",
+    "metrics": "Show lead/call/review counts (dashboard metrics).",
+    "search_carriers": "Search leads. args: {q: text, limit: 1-100}",
+    "next_carrier": "Reserve the next eligible carrier for review.",
+    "save_review": (
+        "Save a carrier review. args: {usdot_number, review_status "
+        "(interested|not_interested|callback_requested|do_not_contact), "
+        "notes (optional)}"
+    ),
+    "pipeline_status": (
+        "Show pipeline job status. args: {job_id (optional; latest if "
+        "omitted)}"
+    ),
+    "pipeline_leads": (
+        "List qualified leads of a pipeline job. args: {job_id, limit}"
+    ),
+    "export_excel": "Give the Excel export link.",
+}
+
+ASSISTANT_REFUSAL_KEYWORDS = (
+    "delete", "drop ", "truncate", "wipe", "erase", "remove all",
+    "reset all", "purge", "rm -rf", "buy", "purchase", "pay ", "charge",
+    "subscribe", "send email", "send sms", "dial", "real call",
+    "place a call", "make the call", "go live", "call the carrier",
+    "call this carrier", "call a carrier", "phone the carrier",
+)
+
+# Phrasing variants that are still "make a real phone call". Kept as
+# patterns so "place a real call" is refused while ordinary questions
+# such as "what is the outbound calling mode" are still allowed.
+ASSISTANT_REFUSAL_PATTERNS = (
+    re.compile(r"\b(place|make|start|begin|initiate)\b.{0,25}\bcall\b"),
+    re.compile(r"\b(dial|phone)\b.{0,25}\b(carrier|lead|number|them|him|her)\b"),
+    re.compile(r"\bcall\b.{0,25}\b(carrier|lead|them|him|her)\b"),
+)
+
+
+def _assistant_refusal_reason(message: str) -> str | None:
+    """Return the reason a request must be refused, or None if allowed."""
+    lowered = message.lower()
+
+    for word in ASSISTANT_REFUSAL_KEYWORDS:
+        if word in lowered:
+            return word.strip()
+
+    for pattern in ASSISTANT_REFUSAL_PATTERNS:
+        if pattern.search(lowered):
+            return "real phone call"
+
+    return None
+
+ASSISTANT_SYSTEM_PROMPT = (
+    "You are the TruckDispatchAgent operator assistant. Convert the "
+    "operator's request into ONE JSON object and output JSON only.\n"
+    "Allowed actions and args:\n"
+    + "\n".join(f"- {name}: {desc}" for name, desc in ASSISTANT_ACTIONS.items())
+    + "\nIf the request is unclear, or asks for something destructive "
+    "(deleting data), a real phone call, or spending money, return "
+    '{"action": "help", "args": {}}.\n'
+    'Output format: {"action": "<name>", "args": {...}}'
+)
+
+
+def _assistant_fallback_plan(message: str) -> dict:
+    """Deterministic parser used if the model is unavailable/unclear."""
+    text = message.strip()
+    lowered = text.lower()
+
+    if any(word in lowered for word in ("help", "what can you do")):
+        return {"action": "help", "args": {}}
+
+    if any(word in lowered for word in ("metric", "stats", "how many")):
+        return {"action": "metrics", "args": {}}
+
+    if "next carrier" in lowered or "next lead" in lowered:
+        return {"action": "next_carrier", "args": {}}
+
+    if "export" in lowered or "excel" in lowered:
+        return {"action": "export_excel", "args": {}}
+
+    if "pipeline" in lowered or "job" in lowered:
+        match = re.search(r"\b([0-9a-f]{8,16})\b", lowered)
+        args = {"job_id": match.group(1)} if match else {}
+        if "lead" in lowered:
+            return {"action": "pipeline_leads", "args": args}
+        return {"action": "pipeline_status", "args": args}
+
+    match = re.match(
+        r"^(?:mark|save|set)\s+(?:usdot\s+)?(\d{1,8})\s+"
+        r"(?:as\s+)?(interested|not interested|callback|"
+        r"do not contact)\s*$",
+        lowered,
+    )
+    if match:
+        status_map = {
+            "interested": "interested",
+            "not interested": "not_interested",
+            "callback": "callback_requested",
+            "do not contact": "do_not_contact",
+        }
+        return {
+            "action": "save_review",
+            "args": {
+                "usdot_number": match.group(1),
+                "review_status": status_map[match.group(2)],
+            },
+        }
+
+    search = re.match(
+        r"^(?:search|find|look up|lookup)\s+(.+)$", text, re.IGNORECASE
+    )
+    if search:
+        return {
+            "action": "search_carriers",
+            "args": {"q": search.group(1).strip()[:100], "limit": 10},
+        }
+
+    return {"action": "help", "args": {}}
+
+
+def plan_assistant_action(message: str) -> dict:
+    """Ask the model for an action plan, with a safe deterministic fallback."""
+    try:
+        completion = groq_client.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            temperature=0,
+            max_completion_tokens=200,
+            messages=[
+                {"role": "system", "content": ASSISTANT_SYSTEM_PROMPT},
+                {"role": "user", "content": message},
+            ],
+        )
+        content = completion.choices[0].message.content or ""
+        import json as _json
+
+        start = content.find("{")
+        end = content.rfind("}")
+        plan = _json.loads(content[start : end + 1]) if start >= 0 else {}
+        action = plan.get("action")
+        args = plan.get("args") or {}
+
+        if action not in ASSISTANT_ACTIONS or not isinstance(args, dict):
+            return _assistant_fallback_plan(message)
+
+        return {"action": action, "args": args}
+
+    except Exception:
+        return _assistant_fallback_plan(message)
+
+
+def execute_assistant_action(action: str, args: dict, conversation_id: str):
+    """Run one whitelisted action and return (reply, data)."""
+    if action == "help":
+        return (
+            "I can do these for you: show metrics, search carriers, reserve "
+            "the next carrier, save a review (e.g. \"mark 1234567 interested\"), "
+            "show pipeline job status and leads, and give the Excel export "
+            "link. I never delete data, never make real phone calls, and "
+            "never spend money.",
+            {"actions": sorted(ASSISTANT_ACTIONS)},
+        )
+
+    if action == "metrics":
+        data = dashboard_metrics()
+        leads = data.get("leads", {})
+        return (
+            f"You have {leads.get('total_leads', 0)} leads "
+            f"({leads.get('high_priority_leads', 0)} high priority, "
+            f"{leads.get('leads_with_phone', 0)} with phone numbers). "
+            f"Active reservations: {data.get('active_reservations', 0)}. "
+            f"Outbound calling mode: {data.get('outbound_call_mode')}.",
+            data,
+        )
+
+    if action == "search_carriers":
+        q = str(args.get("q", ""))[:100]
+        try:
+            limit = int(args.get("limit", 10))
+        except (TypeError, ValueError):
+            limit = 10
+        limit = max(1, min(limit, 100))
+
+        data = search_carriers(q=q, limit=limit)
+        results = data.get("results", []) if isinstance(data, dict) else []
+        if not results:
+            return f"No carriers matched '{q}'.", data
+
+        lines = [
+            f"{row.get('usdot_number')} - {row.get('company_name')}"
+            f" (score {row.get('lead_score')}, {row.get('priority')})"
+            for row in results[:5]
+        ]
+        return (
+            f"Found {len(results)} match(es) for '{q}':\n"
+            + "\n".join(lines),
+            data,
+        )
+
+    if action == "next_carrier":
+        data = get_next_carrier(conversation_id)
+        if not data.get("found"):
+            return data.get("message", "No eligible carriers found."), data
+        carrier = data.get("carrier", {})
+        return (
+            f"Reserved {carrier.get('usdot_number')} - "
+            f"{carrier.get('company_name')} for review "
+            f"(15-minute hold, no call is made).",
+            data,
+        )
+
+    if action == "save_review":
+        usdot = str(args.get("usdot_number", "")).strip()
+        status = str(args.get("review_status", "")).strip()
+        notes = args.get("notes")
+
+        if not usdot.isdigit():
+            raise HTTPException(
+                status_code=400,
+                detail="A numeric USDOT number is required to save a review.",
+            )
+
+        try:
+            review_request = CarrierReviewRequest(
+                usdot_number=usdot,
+                review_status=status,
+                notes=notes,
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid review. Use interested, not_interested, "
+                    f"callback_requested or do_not_contact. ({error})"
+                ),
+            )
+
+        data = save_carrier_review(review_request)
+        return f"{data.get('message', 'Review saved.')}", data
+
+    if action == "pipeline_status":
+        import pipeline_service
+
+        job_id = str(args.get("job_id", "")).strip()
+
+        if job_id:
+            job = pipeline_service.registry.get(job_id)
+        else:
+            jobs = pipeline_service.registry.list_jobs(limit=1)
+            job = jobs[0] if jobs else None
+
+        if job is None:
+            return (
+                "No pipeline job found yet. Upload a PDF on this page to "
+                "start one.",
+                {"job_id": job_id or None},
+            )
+
+        stages = ", ".join(
+            f"{stage['name']}={stage['status']}" for stage in job.stages
+        )
+        return (
+            f"Job {job.job_id} is {job.status}. Stages: {stages}.",
+            job.to_dict(),
+        )
+
+    if action == "pipeline_leads":
+        import pipeline_service
+
+        job_id = str(args.get("job_id", "")).strip()
+        if not job_id:
+            jobs = pipeline_service.registry.list_jobs(limit=1)
+            if not jobs:
+                return "No pipeline job found yet.", {"leads": []}
+            job_id = jobs[0].job_id
+
+        try:
+            limit = max(1, min(int(args.get("limit", 10)), 100))
+        except (TypeError, ValueError):
+            limit = 10
+
+        data = pipeline_leads(job_id)
+        leads = data[:limit] if isinstance(data, list) else []
+        if not leads:
+            return f"Job {job_id} has no qualified leads yet.", {"leads": []}
+
+        lines = [
+            f"{lead.get('usdot_number')} - {lead.get('company_name')} "
+            f"(score {lead.get('lead_score')}, {lead.get('priority')})"
+            for lead in leads[:5]
+        ]
+        return (
+            f"Top leads in job {job_id}:\n" + "\n".join(lines),
+            {"job_id": job_id, "leads": leads},
+        )
+
+    if action == "export_excel":
+        return (
+            "Use this link (admin token required): /export-excel",
+            {"url": "/export-excel"},
+        )
+
+    raise HTTPException(status_code=400, detail="Unsupported action.")
+
+
+@app.post("/assistant", dependencies=[Depends(require_admin)])
+def operator_assistant(request: AssistantRequest):
+    """Chatbot that executes whitelisted operator actions.
+
+    Refuses destructive/billing/real-calling requests outright, before
+    any model or database work happens.
+    """
+    blocked = _assistant_refusal_reason(request.message)
+
+    if blocked:
+        log_event(
+            "assistant_action_refused",
+            reason=blocked.strip(),
+            conversation_id=request.conversation_id,
+        )
+        return {
+            "reply": (
+                "I can't do that. I never delete lead data, never place "
+                "real phone calls, and never spend money. I can still show "
+                "metrics, search carriers, reserve the next carrier, save "
+                "reviews, and report pipeline results."
+            ),
+            "action": "refused",
+            "data": {},
+        }
+
+    plan = plan_assistant_action(request.message)
+    action = plan["action"]
+    args = plan["args"]
+
+    log_event(
+        "assistant_action",
+        action=action,
+        conversation_id=request.conversation_id,
+    )
+
+    try:
+        reply, data = execute_assistant_action(
+            action, args, request.conversation_id
+        )
+    except HTTPException:
+        raise
+    except Exception as error:
+        print(f"Assistant error: {type(error).__name__}: {error}")
+        raise HTTPException(
+            status_code=500,
+            detail="The assistant could not complete that action.",
+        ) from error
+
+    return {"reply": reply, "action": action, "data": data}
+
+
 
 def make_sse_event(data: dict) -> str:
     """Format one server-sent event as JSON."""

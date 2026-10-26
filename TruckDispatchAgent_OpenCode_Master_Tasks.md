@@ -264,6 +264,28 @@ invalid_number, failed — covered by tests.
 > Groq call before it was fixed and fully mocked.
 > **Phase 7 load discovery: PLANNED, not implemented** (plan reported
 > to operator; no integrations or paid services activated).
+>
+> **Pipeline UI + operator assistant record (2026-10-26):** verified
+> live. `/pipeline` uploads a PDF (≤25 MB, `max_records` 1–200,
+> optional DB import, dry run by default) and shows stage-by-stage
+> progress, a live log, and the scored-lead table; real dry runs produced
+> 87 leads from 120 records and 167 from 200 records with **no database
+> writes**. Per-run files stay in `output/pipeline_runs/<job_id>/`.
+> The operator assistant panel at the top of `/pipeline` (and
+> `POST /assistant`, admin-token protected) runs whitelisted actions:
+> metrics, carrier search, reserve next carrier, save review, pipeline
+> status/leads, Excel link, help. It refuses destructive (delete/drop/
+> truncate/wipe), real-calling, and spending requests **before** any
+> model or database call; no destructive, billing, or live-calling
+> action exists in the whitelist. Browser-verified live: metrics
+> (487 leads), carrier search ("MLA" → MLA LOGISTICS CORP), pipeline
+> status, and a destructive request (refused with clear message).
+> Conversation memory is now MC-scoped: history, pending review, and the
+> carrier marker are deleted automatically when a review is saved, when
+> the conversation switches to another MC, when a new carrier is
+> reserved, or after 1 hour idle; each deletion is logged as
+> `conversation_memory_cleared`. Full suite **120 passed / 0 failed /
+> 0 skipped**. Telephony remains offline; Phase 6 still blocked.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,

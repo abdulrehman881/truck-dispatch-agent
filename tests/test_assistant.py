@@ -1,0 +1,293 @@
+"""
+Operator assistant (chatbot) tests.
+
+The assistant may run the app's normal operator actions, but must never
+delete data, place real calls, or spend money. These tests prove the
+whitelist, the refusals, the fallback parser, and the auth guard.
+"""
+
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+import main
+import pipeline_service
+
+client = TestClient(main.app)
+authed = TestClient(
+    main.app, headers={"Authorization": "Bearer test-admin-token"}
+)
+
+
+def _ask(message):
+    return authed.post("/assistant", json={"message": message})
+
+
+def test_assistant_requires_token():
+    assert client.post(
+        "/assistant", json={"message": "show metrics"}
+    ).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "delete all leads",
+        "drop the carrier table",
+        "truncate carrier_reviews",
+        "wipe the database",
+        "buy a DAT subscription",
+        "place a real call to this carrier",
+        "go live with calling",
+    ],
+)
+def test_destructive_or_costly_requests_are_refused(message, monkeypatch):
+    # No planning/model call may happen for refused messages.
+    def _explode(msg):
+        raise AssertionError("planner must not run for refused requests")
+
+    monkeypatch.setattr(main, "plan_assistant_action", _explode)
+
+    response = _ask(message)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "refused"
+    assert "never delete" in body["reply"]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "place a real call now",
+        "dial this carrier",
+        "call the lead",
+        "make the call",
+    ],
+)
+def test_refusal_patterns_catch_call_phrasings(message):
+    assert main._assistant_refusal_reason(message) is not None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "what is the outbound calling mode",
+        "show me the metrics",
+        "how many calls were attempted today",
+    ],
+)
+def test_refusal_patterns_allow_ordinary_questions(message):
+    assert main._assistant_refusal_reason(message) is None
+
+
+def test_help_lists_capabilities():
+    body = _ask("what can you do").json()
+    assert body["action"] == "help"
+    assert "metrics" in body["data"]["actions"]
+    assert "save_review" in body["data"]["actions"]
+
+
+def test_metrics_action(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {"action": "metrics", "args": {}},
+    )
+    monkeypatch.setattr(
+        main,
+        "dashboard_metrics",
+        lambda: {
+            "leads": {
+                "total_leads": 487,
+                "qualified_leads": 450,
+                "high_priority_leads": 485,
+                "leads_with_phone": 480,
+            },
+            "active_reservations": 2,
+            "outbound_call_mode": "offline",
+        },
+    )
+
+    body = _ask("how many leads do we have").json()
+    assert body["action"] == "metrics"
+    assert "487 leads" in body["reply"]
+    assert body["data"]["leads"]["high_priority_leads"] == 485
+
+
+def test_search_action(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "search_carriers",
+            "args": {"q": "LOGISTICS", "limit": 5},
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "search_carriers",
+        lambda q, limit: {
+            "results": [
+                {
+                    "usdot_number": "3819604",
+                    "company_name": "MLA LOGISTICS CORP",
+                    "lead_score": 100,
+                    "priority": "high",
+                }
+            ]
+        },
+    )
+
+    body = _ask("find logistics carriers").json()
+    assert body["action"] == "search_carriers"
+    assert "MLA LOGISTICS CORP" in body["reply"]
+
+
+def test_save_review_rejects_non_numeric_usdot(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "save_review",
+            "args": {"usdot_number": "abc", "review_status": "interested"},
+        },
+    )
+    response = _ask("mark abc interested")
+    assert response.status_code == 400
+
+
+def test_save_review_executes_with_valid_usdot(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "save_review",
+            "args": {"usdot_number": "1234567", "review_status": "interested"},
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "save_carrier_review",
+        lambda request: {"success": True, "message": "Carrier review saved."},
+    )
+
+    body = _ask("mark 1234567 interested").json()
+    assert body["action"] == "save_review"
+    assert "saved" in body["reply"].lower()
+
+
+def test_pipeline_status_action_uses_registry(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {"action": "pipeline_status", "args": {}},
+    )
+
+    job = pipeline_service.registry.create("test.pdf")
+    pipeline_service.registry._jobs[job.job_id] = job
+
+    body = _ask("pipeline status").json()
+    assert body["action"] == "pipeline_status"
+    assert job.job_id in body["reply"]
+
+
+def test_pipeline_status_without_jobs(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {"action": "pipeline_status", "args": {}},
+    )
+    monkeypatch.setattr(
+        pipeline_service.registry, "_jobs", {}, raising=False
+    )
+
+    body = _ask("pipeline status").json()
+    assert "No pipeline job found" in body["reply"]
+
+
+# --------------------------------------------------
+# Planner: model JSON parsing and fallback behaviour
+# --------------------------------------------------
+
+class _FakeCompletions:
+    def __init__(self, content):
+        self.content = content
+
+    def create(self, **kwargs):
+        message = type("M", (), {"content": self.content})
+        choice = type("C", (), {"message": message})
+        return type("R", (), {"choices": [choice]})
+
+
+class _FakeGroq:
+    def __init__(self, content):
+        self.chat = type(
+            "Chat", (), {"completions": _FakeCompletions(content)}
+        )
+
+
+def test_planner_parses_model_json(monkeypatch):
+    plan_json = json.dumps(
+        {"action": "search_carriers", "args": {"q": "XPO", "limit": 3}}
+    )
+    monkeypatch.setattr(main, "groq_client", _FakeGroq(plan_json))
+
+    plan = main.plan_assistant_action("find XPO carriers")
+    assert plan["action"] == "search_carriers"
+    assert plan["args"]["q"] == "XPO"
+
+
+def test_planner_rejects_unknown_action(monkeypatch):
+    monkeypatch.setattr(
+        main, "groq_client", _FakeGroq('{"action": "delete_all", "args": {}}')
+    )
+
+    plan = main.plan_assistant_action("please delete everything")
+    # Unknown actions never pass: fallback only maps to known actions.
+    assert plan["action"] in main.ASSISTANT_ACTIONS
+
+
+def test_planner_falls_back_when_model_fails(monkeypatch):
+    class _Broken:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kwargs):
+                    raise RuntimeError("provider down")
+
+    monkeypatch.setattr(main, "groq_client", _Broken())
+
+    plan = main.plan_assistant_action("search ABC Trucking")
+    assert plan["action"] == "search_carriers"
+    assert plan["args"]["q"] == "ABC Trucking"
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("show me metrics", "metrics"),
+        ("next carrier please", "next_carrier"),
+        ("export to excel", "export_excel"),
+        ("pipeline status", "pipeline_status"),
+        ("search Walmart carriers", "search_carriers"),
+        ("mark 4455667 interested", "save_review"),
+        ("totally unclear request", "help"),
+    ],
+)
+def test_fallback_parser(message, expected):
+    plan = main._assistant_fallback_plan(message)
+    assert plan["action"] == expected
+
+
+def test_unsupported_action_raises():
+    with pytest.raises(Exception):
+        main.execute_assistant_action("nonsense", {}, "conv")
+
+
+def test_no_destructive_action_exists():
+    assert not any(
+        word in name
+        for name in main.ASSISTANT_ACTIONS
+        for word in ("delete", "drop", "truncate", "purge", "reset")
+    )

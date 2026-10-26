@@ -88,6 +88,16 @@ class _JobRegistry:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def list_jobs(self, limit=20):
+        """Return the most recent jobs, newest first."""
+        with self._lock:
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda job: job.created_at,
+                reverse=True,
+            )
+            return jobs[:limit]
+
 
 registry = _JobRegistry()
 
