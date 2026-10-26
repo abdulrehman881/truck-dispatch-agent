@@ -6,7 +6,7 @@ import logging
 from contextvars import ContextVar
 from pathlib import Path
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from io import BytesIO
@@ -938,7 +938,12 @@ ASSISTANT_ACTIONS = {
     "save_review": (
         "Save a carrier review. args: {usdot_number, review_status "
         "(interested|not_interested|callback_requested|do_not_contact), "
+        "follow_up_at (ISO-8601 datetime, required for callback_requested), "
         "notes (optional)}"
+    ),
+    "callbacks_due": (
+        "List scheduled callback reviews. args: {due_only: bool "
+        "(default true)}"
     ),
     "pipeline_status": (
         "Show pipeline job status. args: {job_id (optional; latest if "
@@ -947,7 +952,11 @@ ASSISTANT_ACTIONS = {
     "pipeline_leads": (
         "List qualified leads of a pipeline job. args: {job_id, limit}"
     ),
-    "export_excel": "Give the Excel export link.",
+    "export_excel": (
+        "Give the Excel export link. args: {review_status (optional: "
+        "interested|not_interested|callback_requested|do_not_contact; "
+        "omit for all leads)}"
+    ),
 }
 
 ASSISTANT_REFUSAL_KEYWORDS = (
@@ -994,6 +1003,48 @@ ASSISTANT_SYSTEM_PROMPT = (
 )
 
 
+def _parse_follow_up_at(value):
+    """Turn a follow-up time from the model/operator into a datetime.
+
+    Accepts ISO-8601 ("2026-10-27T09:00") and relative phrases such as
+    "in 2 hours" or "in 3 days". Naive times are treated as local time.
+    """
+    if value is None or str(value).strip() == "":
+        return None
+
+    text = str(value).strip()
+
+    relative = re.match(
+        r"^in\s+(\d{1,4})\s*(minute|min|hour|hr|day)s?$", text, re.IGNORECASE
+    )
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2).lower()
+        if unit.startswith("min"):
+            delta = timedelta(minutes=amount)
+        elif unit.startswith("h"):
+            delta = timedelta(hours=amount)
+        else:
+            delta = timedelta(days=amount)
+        return datetime.now().astimezone() + delta
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not read that follow-up time. Use an ISO date "
+                "(2026-10-27T09:00) or 'in 2 hours'."
+            ),
+        )
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+
+    return parsed
+
+
 def _assistant_fallback_plan(message: str) -> dict:
     """Deterministic parser used if the model is unavailable/unclear."""
     text = message.strip()
@@ -1002,6 +1053,19 @@ def _assistant_fallback_plan(message: str) -> dict:
     if any(word in lowered for word in ("help", "what can you do")):
         return {"action": "help", "args": {}}
 
+    if any(
+        phrase in lowered
+        for phrase in (
+            "callbacks due",
+            "callback due",
+            "callback queue",
+            "scheduled callbacks",
+            "who is due",
+            "who's due",
+        )
+    ):
+        return {"action": "callbacks_due", "args": {"due_only": True}}
+
     if any(word in lowered for word in ("metric", "stats", "how many")):
         return {"action": "metrics", "args": {}}
 
@@ -1009,7 +1073,12 @@ def _assistant_fallback_plan(message: str) -> dict:
         return {"action": "next_carrier", "args": {}}
 
     if "export" in lowered or "excel" in lowered:
-        return {"action": "export_excel", "args": {}}
+        args = {}
+        if "interested" in lowered:
+            args["review_status"] = "interested"
+        elif "callback" in lowered:
+            args["review_status"] = "callback_requested"
+        return {"action": "export_excel", "args": args}
 
     if "pipeline" in lowered or "job" in lowered:
         match = re.search(r"\b([0-9a-f]{8,16})\b", lowered)
@@ -1020,8 +1089,8 @@ def _assistant_fallback_plan(message: str) -> dict:
 
     match = re.match(
         r"^(?:mark|save|set)\s+(?:usdot\s+)?(\d{1,8})\s+"
-        r"(?:as\s+)?(interested|not interested|callback|"
-        r"do not contact)\s*$",
+        r"(?:as\s+)?(interested|not interested|callback|call back|"
+        r"do not contact)\s*(.*)$",
         lowered,
     )
     if match:
@@ -1029,15 +1098,17 @@ def _assistant_fallback_plan(message: str) -> dict:
             "interested": "interested",
             "not interested": "not_interested",
             "callback": "callback_requested",
+            "call back": "callback_requested",
             "do not contact": "do_not_contact",
         }
-        return {
-            "action": "save_review",
-            "args": {
-                "usdot_number": match.group(1),
-                "review_status": status_map[match.group(2)],
-            },
+        args = {
+            "usdot_number": match.group(1),
+            "review_status": status_map[match.group(2)],
         }
+        tail = match.group(3).strip()
+        if tail:
+            args["follow_up_at"] = tail
+        return {"action": "save_review", "args": args}
 
     search = re.match(
         r"^(?:search|find|look up|lookup)\s+(.+)$", text, re.IGNORECASE
@@ -1059,7 +1130,17 @@ def plan_assistant_action(message: str) -> dict:
             temperature=0,
             max_completion_tokens=200,
             messages=[
-                {"role": "system", "content": ASSISTANT_SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": (
+                        ASSISTANT_SYSTEM_PROMPT
+                        + "\nCurrent local time: "
+                        + datetime.now().astimezone().isoformat()
+                        + "\nFor callback_requested, compute follow_up_at as an "
+                        "ISO-8601 datetime in the future (or echo the "
+                        "operator's relative phrase like 'in 2 hours')."
+                    ),
+                },
                 {"role": "user", "content": message},
             ],
         )
@@ -1086,10 +1167,12 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
     if action == "help":
         return (
             "I can do these for you: show metrics, search carriers, reserve "
-            "the next carrier, save a review (e.g. \"mark 1234567 interested\"), "
-            "show pipeline job status and leads, and give the Excel export "
-            "link. I never delete data, never make real phone calls, and "
-            "never spend money.",
+            "the next carrier, save a review (e.g. \"mark 1234567 interested\" "
+            "or \"mark 1234567 callback in 2 hours\"), list callbacks that "
+            "are due, show pipeline job status and leads, and prepare the "
+            "Excel export (e.g. \"export interested carriers to excel\"). "
+            "I never delete data, never make real phone calls, and never "
+            "spend money.",
             {"actions": sorted(ASSISTANT_ACTIONS)},
         )
 
@@ -1145,6 +1228,7 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
         usdot = str(args.get("usdot_number", "")).strip()
         status = str(args.get("review_status", "")).strip()
         notes = args.get("notes")
+        follow_up_at = _parse_follow_up_at(args.get("follow_up_at"))
 
         if not usdot.isdigit():
             raise HTTPException(
@@ -1157,6 +1241,7 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
                 usdot_number=usdot,
                 review_status=status,
                 notes=notes,
+                follow_up_at=follow_up_at,
             )
         except Exception as error:
             raise HTTPException(
@@ -1168,7 +1253,45 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
             )
 
         data = save_carrier_review(review_request)
+
+        if status == "callback_requested" and follow_up_at:
+            return (
+                f"{data.get('message', 'Review saved.')} Callback scheduled "
+                f"for {follow_up_at.isoformat(timespec='minutes')}. The "
+                "carrier stays out of the eligible queue until then, and no "
+                "call is made automatically.",
+                data,
+            )
+
         return f"{data.get('message', 'Review saved.')}", data
+
+    if action == "callbacks_due":
+        due_only = args.get("due_only", True)
+        if isinstance(due_only, str):
+            due_only = due_only.strip().lower() not in ("false", "0", "no")
+
+        data = list_callbacks(due_only=bool(due_only))
+        callbacks = data.get("callbacks", [])
+        due_count = data.get("due_count", 0)
+
+        if not callbacks:
+            return (
+                "No callbacks scheduled yet. Save one with: "
+                "\"mark 1234567 callback in 2 hours\".",
+                data,
+            )
+
+        lines = [
+            f"{row['usdot_number']} - {row['company_name']} at "
+            f"{str(row['follow_up_at'])[:16]}{' (DUE)' if row['due'] else ''}"
+            for row in callbacks[:8]
+        ]
+        return (
+            f"{due_count} callback(s) due now, {len(callbacks)} scheduled "
+            "in total:\n" + "\n".join(lines) + "\nNo call is placed "
+            "automatically while calling is offline.",
+            data,
+        )
 
     if action == "pipeline_status":
         import pipeline_service
@@ -1227,9 +1350,29 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
         )
 
     if action == "export_excel":
+        status = str(args.get("review_status", "")).strip()
+        allowed = (
+            "interested",
+            "not_interested",
+            "callback_requested",
+            "do_not_contact",
+        )
+
+        if status and status not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "review_status must be one of: " + ", ".join(allowed)
+                ),
+            )
+
+        url = "/export-excel" + (f"?review_status={status}" if status else "")
+        label = status.replace("_", " ") if status else "all leads"
         return (
-            "Use this link (admin token required): /export-excel",
-            {"url": "/export-excel"},
+            f"The Excel export for {label} is ready: {url} . "
+            "Click 'Download Excel' in this panel to save it (it sends "
+            "your admin token automatically).",
+            {"url": url, "review_status": status or None},
         )
 
     raise HTTPException(status_code=400, detail="Unsupported action.")
@@ -2162,6 +2305,84 @@ def search_carriers(
         ) from exc
 
 
+def list_callbacks(due_only: bool = True) -> dict:
+    """Read-only list of carriers whose latest review is a callback.
+
+    Callbacks whose follow-up time has passed become eligible for the
+    normal reservation queue again; this view just reports them.
+    """
+    due_clause = (
+        "AND r.follow_up_at <= CURRENT_TIMESTAMP" if due_only else ""
+    )
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT
+                        c.usdot_number,
+                        c.company_name,
+                        c.phone,
+                        c.lead_score,
+                        c.priority,
+                        r.follow_up_at,
+                        r.notes,
+                        (r.follow_up_at <= CURRENT_TIMESTAMP) AS due
+                    FROM public.carrier_leads AS c
+                    JOIN LATERAL (
+                        SELECT
+                            review_status,
+                            follow_up_at,
+                            notes,
+                            reviewed_at,
+                            id
+                        FROM public.carrier_reviews
+                        WHERE usdot_number = c.usdot_number
+                        ORDER BY reviewed_at DESC, id DESC
+                        LIMIT 1
+                    ) AS r ON TRUE
+                    WHERE r.review_status = 'callback_requested'
+                      AND r.follow_up_at IS NOT NULL
+                      {due_clause}
+                    ORDER BY r.follow_up_at
+                    LIMIT 100
+                    """
+                )
+
+                rows = cur.fetchall()
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Callback list error: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not load scheduled callbacks.",
+        ) from exc
+
+    callbacks = [
+        {
+            "usdot_number": row[0],
+            "company_name": row[1],
+            "phone": row[2],
+            "lead_score": row[3],
+            "priority": row[4],
+            "follow_up_at": row[5].isoformat() if row[5] else None,
+            "notes": row[6],
+            "due": bool(row[7]),
+        }
+        for row in rows
+    ]
+
+    return {
+        "callbacks": callbacks,
+        "total": len(callbacks),
+        "due_count": sum(1 for item in callbacks if item["due"]),
+        "due_only": due_only,
+    }
+
+
 @app.get("/eligible-carriers", dependencies=[Depends(require_admin)])
 def get_eligible_carriers(limit: int = 25):
     """Return qualified carrier candidates for human review."""
@@ -2398,13 +2619,31 @@ def get_next_carrier(conversation_id: str):
 
 
 @app.get("/export-excel", dependencies=[Depends(require_admin)])
-def export_excel():
-    """Export carrier leads and their latest review outcomes to Excel."""
+def export_excel(
+    review_status: Literal[
+        "interested",
+        "not_interested",
+        "callback_requested",
+        "do_not_contact",
+    ]
+    | None = Query(default=None),
+):
+    """Export carrier leads and their latest review outcomes to Excel.
+
+    Optionally filter to carriers whose latest review has the given
+    status (e.g. `?review_status=interested`).
+    """
+
+    where_clause = ""
+    params: tuple = ()
+    if review_status is not None:
+        where_clause = "WHERE r.review_status = %s"
+        params = (review_status,)
 
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT
                         c.usdot_number,
                         c.company_name,
@@ -2428,6 +2667,7 @@ def export_excel():
                         ORDER BY reviewed_at DESC, id DESC
                         LIMIT 1
                     ) AS r ON TRUE
+                    {where_clause}
                     ORDER BY
                         CASE c.priority
                             WHEN 'high' THEN 1
@@ -2436,7 +2676,7 @@ def export_excel():
                         END,
                         c.lead_score DESC NULLS LAST,
                         c.company_name;
-                """)
+                """, params)
 
                 rows = cur.fetchall()
                 headers = [column.name for column in cur.description]
@@ -2469,6 +2709,12 @@ def export_excel():
         workbook.save(output)
         output.seek(0)
 
+        filename = (
+            "carrier_leads.xlsx"
+            if review_status is None
+            else f"carrier_leads_{review_status}.xlsx"
+        )
+
         return StreamingResponse(
             output,
             media_type=(
@@ -2476,7 +2722,7 @@ def export_excel():
                 "spreadsheetml.sheet"
             ),
             headers={
-                "Content-Disposition": 'attachment; filename="carrier_leads.xlsx"'
+                "Content-Disposition": f'attachment; filename="{filename}"'
             },
         )
 

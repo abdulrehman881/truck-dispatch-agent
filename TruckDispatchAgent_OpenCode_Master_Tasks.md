@@ -286,6 +286,19 @@ invalid_number, failed — covered by tests.
 > reserved, or after 1 hour idle; each deletion is logged as
 > `conversation_memory_cleared`. Full suite **120 passed / 0 failed /
 > 0 skipped**. Telephony remains offline; Phase 6 still blocked.
+>
+> **Callbacks + filtered Excel record (2026-10-26):** the assistant can
+> now schedule a callback (`mark 1234567 callback in 2 hours`, stored as
+> `follow_up_at`; ISO-8601 or relative times), list scheduled/due
+> callbacks (`callbacks due`), and `/export-excel` accepts an optional
+> `?review_status=` filter. The pipeline panel has a **Download Excel**
+> selector (interested / callback requested / not interested / do not
+> contact / all). Verified live read-only: `callbacks due` answered
+> correctly, invalid status → HTTP 422, and the interested-only workbook
+> downloaded with 3 rows, every `review_status` = `interested`
+> (`carrier_leads_interested.xlsx`, 5,491 bytes). Browser-verified the
+> new chip and download button. No production rows were written; no
+> call was placed. Full suite **136 passed / 0 failed / 0 skipped**.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,

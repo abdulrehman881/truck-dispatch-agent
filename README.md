@@ -81,7 +81,7 @@ python -m pytest tests -q
 | `GET /eligible-carriers` | List eligible candidates (no reservation) |
 | `POST /carrier-reviews` | Save a review outcome (interested / callback / DNC...) |
 | `POST /carrier-call-attempts` | Save a call outcome |
-| `GET /export-excel` | Export leads + reviews to Excel |
+| `GET /export-excel` | Export leads + reviews to Excel (`?review_status=` optional filter) |
 | `GET /metrics` | Dashboard counts (admin token required) |
 | `GET /pipeline` | Carrier-pipeline UI (upload PDF → live stage progress) |
 | `POST /pipeline/upload` | Start a pipeline run on a PDF (admin token required) |
@@ -93,13 +93,22 @@ python -m pytest tests -q
 
 The pipeline page has an assistant panel at the top. It converts a plain
 instruction into one whitelisted action and executes it: `metrics`,
-`search_carriers`, `next_carrier`, `save_review`, `pipeline_status`,
-`pipeline_leads`, `export_excel`, and `help`. It refuses — before any
-model or database work — requests to delete/drop data, place a real
-phone call, or spend money. There are no destructive, billing, or
-live-calling actions in the whitelist. `POST /assistant` requires the
-admin token and is logged as `assistant_action` (or
+`search_carriers`, `next_carrier`, `save_review`, `callbacks_due`,
+`pipeline_status`, `pipeline_leads`, `export_excel`, and `help`. It
+refuses — before any model or database work — requests to delete/drop
+data, place a real phone call, or spend money. There are no destructive,
+billing, or live-calling actions in the whitelist. `POST /assistant`
+requires the admin token and is logged as `assistant_action` (or
 `assistant_action_refused`).
+
+Callbacks can be scheduled by chat, e.g.
+`mark 1234567 callback in 2 hours` (the follow-up time is stored on the
+review). A carrier with a future callback stays out of the eligible
+queue until that time passes, then becomes eligible again. `callbacks
+due` lists them; nothing is dialed automatically while calling is
+offline. The panel's **Download Excel** button exports the selected
+review status (default: interested carriers) using the admin token —
+e.g. `GET /export-excel?review_status=interested`.
 
 #### Carrier pipeline UI (`/pipeline`)
 

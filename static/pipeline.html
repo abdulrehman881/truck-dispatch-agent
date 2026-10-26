@@ -137,6 +137,12 @@
   }
   .assistant-row { display: flex; gap: 10px; margin-top: 14px; }
   .assistant-row input { flex: 1; }
+  .export-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+  select {
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 9px 12px;
+    font-size: .9rem;
+  }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .chip {
     background: var(--panel-2); border: 1px solid var(--border);
@@ -165,7 +171,20 @@
       <button type="button" class="chip" data-msg="Show metrics">Show metrics</button>
       <button type="button" class="chip" data-msg="Pipeline status">Pipeline status</button>
       <button type="button" class="chip" data-msg="Reserve the next carrier">Next carrier</button>
+      <button type="button" class="chip" data-msg="Callbacks due">Callbacks due</button>
       <button type="button" class="chip" data-msg="What can you do?">What can you do?</button>
+    </div>
+    <div class="export-row">
+      <label class="opt">Excel export
+        <select id="exportStatus">
+          <option value="interested">Interested carriers</option>
+          <option value="callback_requested">Callback requested</option>
+          <option value="not_interested">Not interested</option>
+          <option value="do_not_contact">Do not contact</option>
+          <option value="">All leads</option>
+        </select>
+      </label>
+      <button id="exportExcel" type="button" style="padding:8px 16px">⬇ Download Excel</button>
     </div>
     <form class="assistant-row" id="assistantForm">
       <input id="assistantInput" type="text" maxlength="1000"
@@ -442,8 +461,8 @@
   addMessage(
     "bot",
     "Hi! I can run metrics, carrier search, carrier reservations, reviews, " +
-    "and pipeline reports for you. I never delete data, place real calls, " +
-    "or spend money."
+    "callback scheduling, and pipeline reports for you. I never delete " +
+    "data, place real calls, or spend money."
   );
 
   async function askAssistant(text) {
@@ -499,6 +518,44 @@
   document.querySelectorAll(".chip").forEach((chip) => {
     chip.onclick = () => askAssistant(chip.dataset.msg);
   });
+
+  const exportBtn = document.getElementById("exportExcel");
+  exportBtn.onclick = async () => {
+    const status = document.getElementById("exportStatus").value;
+    const url = "/export-excel" +
+      (status ? "?review_status=" + encodeURIComponent(status) : "");
+
+    exportBtn.disabled = true;
+    try {
+      const res = await fetch(url, {headers: authHeaders()});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        addMessage("error", "Export failed: " + (body.detail || res.status));
+        return;
+      }
+
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = "carrier_leads" + (status ? "_" + status : "") + ".xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 1000);
+
+      addMessage(
+        "bot",
+        "Downloaded " +
+        (status ? status.replace(/_/g, " ") : "all") +
+        " carriers to Excel."
+      );
+    } catch (err) {
+      addMessage("error", "Export error: " + err.message);
+    } finally {
+      exportBtn.disabled = false;
+    }
+  };
 
   // Restore token if this tab already has one
   const saved = sessionStorage.getItem("admin_token");

@@ -8,6 +8,8 @@ whitelist, the refusals, the fallback parser, and the auth guard.
 
 import json
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -177,6 +179,186 @@ def test_save_review_executes_with_valid_usdot(monkeypatch):
     assert "saved" in body["reply"].lower()
 
 
+def test_save_review_passes_follow_up_for_callback(monkeypatch):
+    captured = {}
+
+    def fake_save(request):
+        captured["request"] = request
+        return {"success": True, "message": "Carrier review saved."}
+
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "save_review",
+            "args": {
+                "usdot_number": "1234567",
+                "review_status": "callback_requested",
+                "follow_up_at": "in 2 hours",
+            },
+        },
+    )
+    monkeypatch.setattr(main, "save_carrier_review", fake_save)
+
+    body = _ask("mark 1234567 callback in 2 hours").json()
+
+    assert body["action"] == "save_review"
+    follow_up = captured["request"].follow_up_at
+    assert follow_up is not None
+    assert follow_up.tzinfo is not None
+    assert follow_up > datetime.now(timezone.utc)
+    assert "Callback scheduled" in body["reply"]
+
+
+def test_callback_without_follow_up_is_rejected(monkeypatch):
+    # Use the real save_carrier_review: it rejects before touching the DB.
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "save_review",
+            "args": {
+                "usdot_number": "1234567",
+                "review_status": "callback_requested",
+            },
+        },
+    )
+
+    response = _ask("mark 1234567 callback")
+
+    assert response.status_code == 400
+    assert "follow-up" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize(
+    "value,ok",
+    [
+        ("in 30 minutes", True),
+        ("in 2 hours", True),
+        ("in 3 days", True),
+        ("2026-12-01T09:00", True),
+        ("2026-12-01T09:00:00Z", True),
+        ("next tuesday", False),
+    ],
+)
+def test_parse_follow_up_at(value, ok):
+    if not ok:
+        with pytest.raises(Exception):
+            main._parse_follow_up_at(value)
+        return
+
+    parsed = main._parse_follow_up_at(value)
+    assert isinstance(parsed, datetime)
+    assert parsed.tzinfo is not None
+
+
+class _FakeCursor:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def execute(self, *args, **kwargs):
+        self.sql = args[0] if args else ""
+        self.params = args[1] if len(args) > 1 else None
+
+    def fetchall(self):
+        return self._rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _FakeConnection:
+    def __init__(self, rows):
+        self._cursor = _FakeCursor(rows)
+
+    def cursor(self):
+        return self._cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_callbacks_due_lists_scheduled(monkeypatch):
+    now = datetime.now(timezone.utc)
+    rows = [
+        ("3819604", "MLA LOGISTICS CORP", "5551234567", 100, "high",
+         now - timedelta(minutes=10), "asked for afternoon", True),
+        ("1234567", "ACME TRUCKING", "5559876543", 80, "medium",
+         now + timedelta(hours=2), None, False),
+    ]
+    monkeypatch.setattr(
+        main, "get_db_connection", lambda: _FakeConnection(rows)
+    )
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {"action": "callbacks_due", "args": {}},
+    )
+
+    body = _ask("callbacks due").json()
+
+    assert body["action"] == "callbacks_due"
+    assert body["data"]["total"] == 2
+    assert body["data"]["due_count"] == 1
+    assert "MLA LOGISTICS CORP" in body["reply"]
+    assert "(DUE)" in body["reply"]
+
+
+def test_callbacks_due_empty(monkeypatch):
+    monkeypatch.setattr(
+        main, "get_db_connection", lambda: _FakeConnection([])
+    )
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {"action": "callbacks_due", "args": {}},
+    )
+
+    body = _ask("callbacks due").json()
+    assert "No callbacks scheduled" in body["reply"]
+
+
+def test_export_action_can_filter_interested(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "export_excel",
+            "args": {"review_status": "interested"},
+        },
+    )
+
+    body = _ask("export interested carriers to excel").json()
+    assert body["action"] == "export_excel"
+    assert body["data"]["url"] == "/export-excel?review_status=interested"
+    assert "interested" in body["reply"]
+
+
+def test_export_action_rejects_unknown_status(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "export_excel",
+            "args": {"review_status": "everything"},
+        },
+    )
+
+    response = _ask("export everything")
+    assert response.status_code == 400
+
+
+def test_export_endpoint_rejects_unknown_status():
+    response = authed.get("/export-excel?review_status=everything")
+    assert response.status_code == 422
+
+
 def test_pipeline_status_action_uses_registry(monkeypatch):
     monkeypatch.setattr(
         main,
@@ -272,12 +454,28 @@ def test_planner_falls_back_when_model_fails(monkeypatch):
         ("pipeline status", "pipeline_status"),
         ("search Walmart carriers", "search_carriers"),
         ("mark 4455667 interested", "save_review"),
+        ("callbacks due", "callbacks_due"),
         ("totally unclear request", "help"),
     ],
 )
 def test_fallback_parser(message, expected):
     plan = main._assistant_fallback_plan(message)
     assert plan["action"] == expected
+
+
+def test_fallback_parses_callback_schedule():
+    plan = main._assistant_fallback_plan("mark 4455667 callback in 2 hours")
+
+    assert plan["action"] == "save_review"
+    assert plan["args"]["review_status"] == "callback_requested"
+    assert plan["args"]["follow_up_at"] == "in 2 hours"
+
+
+def test_fallback_exports_interested_only():
+    plan = main._assistant_fallback_plan("export interested carriers to excel")
+
+    assert plan["action"] == "export_excel"
+    assert plan["args"]["review_status"] == "interested"
 
 
 def test_unsupported_action_raises():
