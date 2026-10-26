@@ -88,6 +88,34 @@ python -m pytest tests -q
 | `GET /pipeline/status/{id}` | Live progress/logs of a pipeline run (admin) |
 | `GET /pipeline/leads/{id}` | Qualified leads of a finished run (admin) |
 | `POST /assistant` | Operator chatbot: runs whitelisted actions (admin) |
+| `GET /tasks` | Scheduled tasks/reminders (admin) |
+| `POST /tasks/reminders` | Store a reminder (`title`, `due_at`) (admin) |
+| `POST /tasks/{id}/done` | Mark a task done (admin) |
+| `POST /tasks/{id}/cancel` | Cancel a pending task (admin) |
+
+#### Scheduled tasks & reminders
+
+Every follow-up is stored in the `public.scheduled_tasks` table, so
+schedules survive server restarts. The table is created automatically
+at startup (`CREATE TABLE IF NOT EXISTS`) and existing callback reviews
+are backfilled once.
+
+- A saved `callback_requested` review automatically creates a `callback`
+  task at its `follow_up_at` time (rescheduling cancels the previous
+  active task for that carrier).
+- The background worker polls every `TASK_SCHEDULER_POLL_SECONDS`
+  (default 30) and flips tasks whose time has come from `pending` to
+  `due` (`notified_at` set, `task_due` logged). The pipeline page's
+  **Scheduled tasks & reminders** card shows them and lets you mark them
+  done/cancelled.
+- Chat commands: `remind me to <thing> in 2 hours` (or an ISO time),
+  `my tasks` / `what do I need to do`, and `mark task 12 done`.
+- **The worker never places a call.** A due callback appears as a
+  reminder for the operator; real dialing stays blocked until telephony
+  is approved and configured.
+- Set `TASK_SCHEDULER_ENABLED=false` to disable the worker. Run one
+  server process per database (the worker uses `FOR UPDATE SKIP LOCKED`,
+  but keeping a single scheduler is simplest).
 
 #### Operator assistant (chatbot)
 
@@ -127,11 +155,11 @@ All admin/data endpoints (`/metrics`, `/carriers/search`,
 `/eligible-carriers`, `/next-carrier`, `/carrier-reviews`,
 `/carrier-call-attempts`, `/mock-call`, `/export-excel`,
 `/pipeline/upload`, `/pipeline/status/*`, `/pipeline/leads/*`,
-`/assistant`) require `Authorization: Bearer <ADMIN_API_TOKEN>`. They
-fail closed (HTTP 503) when the token is not configured. Voice/chat
-endpoints, `/pipeline` page, `/dashboard` page, and `/health` are public
-and never need the token (the data behind the dashboard/pipeline pages
-do).
+`/assistant`, `/tasks`, `/tasks/*`) require
+`Authorization: Bearer <ADMIN_API_TOKEN>`. They fail closed (HTTP 503)
+when the token is not configured. Voice/chat endpoints, `/pipeline`
+page, `/dashboard` page, and `/health` are public and never need the
+token (the data behind the dashboard/pipeline pages do).
 
 ## Lead lifecycle and outbound calling safety
 

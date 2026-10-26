@@ -19,4 +19,6 @@ TEST_ADMIN_TOKEN = "test-admin-token"
 @pytest.fixture(autouse=True)
 def admin_token(monkeypatch):
     monkeypatch.setattr(main, "ADMIN_API_TOKEN", TEST_ADMIN_TOKEN)
+    # Never start the background task worker inside tests.
+    monkeypatch.setattr(main, "TASK_SCHEDULER_ENABLED", False)
     return TEST_ADMIN_TOKEN

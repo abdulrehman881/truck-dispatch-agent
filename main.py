@@ -3,6 +3,7 @@ import time
 import uuid
 import hmac
 import logging
+import threading
 from contextvars import ContextVar
 from pathlib import Path
 
@@ -913,6 +914,462 @@ def pipeline_status(job_id: str):
 
 
 # --------------------------------------------------
+# Scheduled tasks (persistent operator to-do queue)
+# --------------------------------------------------
+# Every follow-up is stored in PostgreSQL, so schedules survive server
+# restarts. A background worker flips tasks from "pending" to "due" when
+# their time arrives. Because outbound calling is offline, a due callback
+# becomes a visible reminder for the operator — the app never dials by
+# itself.
+
+SCHEDULED_TASKS_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS public.scheduled_tasks (
+        id BIGSERIAL PRIMARY KEY,
+        task_type TEXT NOT NULL,
+        usdot_number TEXT,
+        title TEXT NOT NULL,
+        details TEXT,
+        due_at TIMESTAMPTZ NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        source TEXT NOT NULL DEFAULT 'api',
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        notified_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS scheduled_tasks_status_due_idx
+    ON public.scheduled_tasks (status, due_at)
+    """,
+)
+
+TASK_STATUSES = ("pending", "due", "done", "cancelled")
+TASK_TYPES = ("callback", "reminder")
+
+TASK_SELECT_COLUMNS = (
+    "id, task_type, usdot_number, title, details, due_at, status, "
+    "source, notified_at, completed_at"
+)
+
+TASK_SCHEDULER_ENABLED = os.getenv(
+    "TASK_SCHEDULER_ENABLED", "true"
+).strip().lower() not in ("false", "0", "no")
+
+TASK_SCHEDULER_POLL_SECONDS = max(
+    5, int(os.getenv("TASK_SCHEDULER_POLL_SECONDS", "30"))
+)
+
+_scheduler_stop = threading.Event()
+_scheduler_thread = None
+
+
+def ensure_scheduled_tasks_table():
+    """Create the task table/index if missing, then backfill callbacks."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            for statement in SCHEDULED_TASKS_DDL:
+                cur.execute(statement)
+
+            # Existing callback reviews predating the task queue get one
+            # task each (idempotent: only when no active task exists).
+            cur.execute(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (usdot_number)
+                        usdot_number,
+                        review_status,
+                        follow_up_at,
+                        notes
+                    FROM public.carrier_reviews
+                    ORDER BY usdot_number, reviewed_at DESC, id DESC
+                )
+                INSERT INTO public.scheduled_tasks (
+                    task_type, usdot_number, title, details, due_at,
+                    source, payload
+                )
+                SELECT
+                    'callback',
+                    latest.usdot_number,
+                    'Call back carrier ' || latest.usdot_number,
+                    latest.notes,
+                    latest.follow_up_at,
+                    'backfill',
+                    '{}'::jsonb
+                FROM latest
+                WHERE latest.review_status = 'callback_requested'
+                  AND latest.follow_up_at IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM public.scheduled_tasks AS t
+                      WHERE t.usdot_number = latest.usdot_number
+                        AND t.task_type = 'callback'
+                        AND t.status IN ('pending', 'due')
+                  )
+                """
+            )
+
+
+def _task_row_to_dict(row) -> dict:
+    return {
+        "id": row[0],
+        "task_type": row[1],
+        "usdot_number": row[2],
+        "title": row[3],
+        "details": row[4],
+        "due_at": row[5].isoformat() if row[5] else None,
+        "status": row[6],
+        "source": row[7],
+        "notified_at": row[8].isoformat() if row[8] else None,
+        "completed_at": row[9].isoformat() if row[9] else None,
+    }
+
+
+def _insert_task(
+    cur,
+    task_type,
+    title,
+    due_at,
+    usdot_number=None,
+    details=None,
+    source="api",
+    payload=None,
+):
+    """Insert one task using an existing transaction cursor."""
+    if task_type not in TASK_TYPES:
+        raise ValueError(f"Unknown task type: {task_type}")
+
+    if task_type == "callback" and usdot_number:
+        # Rescheduling replaces the previous active callback task.
+        cur.execute(
+            """
+            UPDATE public.scheduled_tasks
+            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+            WHERE usdot_number = %s
+              AND task_type = 'callback'
+              AND status IN ('pending', 'due')
+            """,
+            (usdot_number,),
+        )
+
+    cur.execute(
+        f"""
+        INSERT INTO public.scheduled_tasks (
+            task_type, usdot_number, title, details, due_at, source,
+            payload
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING {TASK_SELECT_COLUMNS}
+        """,
+        (
+            task_type,
+            usdot_number,
+            title,
+            details,
+            due_at,
+            source,
+            Jsonb(payload or {}),
+        ),
+    )
+
+    return _task_row_to_dict(cur.fetchone())
+
+
+def create_task(
+    task_type,
+    title,
+    due_at,
+    usdot_number=None,
+    details=None,
+    source="api",
+    payload=None,
+):
+    """Create a scheduled task in its own transaction."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            return _insert_task(
+                cur,
+                task_type=task_type,
+                title=title,
+                due_at=due_at,
+                usdot_number=usdot_number,
+                details=details,
+                source=source,
+                payload=payload,
+            )
+
+
+def list_tasks(
+    status=None,
+    due_only=False,
+    include_done=False,
+    limit=100,
+):
+    """Return scheduled tasks (open tasks by default)."""
+    limit = max(1, min(int(limit), 200))
+    clauses = []
+    params = []
+
+    if status:
+        if status not in TASK_STATUSES:
+            raise ValueError(f"Unknown task status: {status}")
+        clauses.append("status = %s")
+        params.append(status)
+    elif not include_done:
+        clauses.append("status IN ('pending', 'due')")
+
+    if due_only:
+        clauses.append("due_at <= CURRENT_TIMESTAMP")
+        clauses.append("status IN ('pending', 'due')")
+
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {TASK_SELECT_COLUMNS}
+                FROM public.scheduled_tasks
+                {where}
+                ORDER BY due_at, id
+                LIMIT %s
+                """,
+                tuple(params),
+            )
+            rows = cur.fetchall()
+
+    return [_task_row_to_dict(row) for row in rows]
+
+
+def update_task_status(task_id, status):
+    """Move a task to done/cancelled/pending. Returns the updated row."""
+    if status not in ("done", "cancelled", "pending"):
+        raise ValueError(f"Unsupported task status: {status}")
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE public.scheduled_tasks
+                SET
+                    status = %s,
+                    updated_at = CURRENT_TIMESTAMP,
+                    completed_at = CASE
+                        WHEN %s = 'done' THEN CURRENT_TIMESTAMP
+                        ELSE completed_at
+                    END
+                WHERE id = %s
+                RETURNING {TASK_SELECT_COLUMNS}
+                """,
+                (status, status, int(task_id)),
+            )
+            row = cur.fetchone()
+
+    return _task_row_to_dict(row) if row else None
+
+
+def process_due_tasks(limit=25):
+    """Flip pending tasks whose time has come to 'due' (reminders).
+
+    Never places a call. Returns how many tasks became due.
+    """
+    due_tasks = []
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, task_type, usdot_number, title, due_at
+                FROM public.scheduled_tasks
+                WHERE status = 'pending'
+                  AND due_at <= CURRENT_TIMESTAMP
+                ORDER BY due_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT %s
+                """,
+                (max(1, int(limit)),),
+            )
+
+            for row in cur.fetchall():
+                task_id, task_type, usdot_number, title, due_at = row
+                cur.execute(
+                    """
+                    UPDATE public.scheduled_tasks
+                    SET
+                        status = 'due',
+                        notified_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                    """,
+                    (task_id,),
+                )
+                due_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "task_type": task_type,
+                        "usdot_number": usdot_number,
+                        "title": title,
+                        "due_at": due_at.isoformat() if due_at else None,
+                    }
+                )
+
+    for task in due_tasks:
+        log_event("task_due", **task)
+
+    return len(due_tasks)
+
+
+def _scheduler_loop():
+    while not _scheduler_stop.wait(TASK_SCHEDULER_POLL_SECONDS):
+        try:
+            count = process_due_tasks()
+            if count:
+                log_event("task_scheduler_processed", due_tasks=count)
+        except Exception as error:
+            log_event(
+                "task_scheduler_error",
+                error=f"{type(error).__name__}: {error}",
+            )
+
+
+def start_task_scheduler():
+    global _scheduler_thread
+
+    if not TASK_SCHEDULER_ENABLED:
+        return
+
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return
+
+    try:
+        ensure_scheduled_tasks_table()
+    except Exception as error:
+        log_event(
+            "task_scheduler_schema_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+
+    _scheduler_stop.clear()
+    _scheduler_thread = threading.Thread(
+        target=_scheduler_loop,
+        name="task-scheduler",
+        daemon=True,
+    )
+    _scheduler_thread.start()
+    log_event(
+        "task_scheduler_started",
+        poll_seconds=TASK_SCHEDULER_POLL_SECONDS,
+    )
+
+
+def stop_task_scheduler():
+    _scheduler_stop.set()
+
+
+@app.on_event("startup")
+def _start_scheduler_on_startup():
+    start_task_scheduler()
+
+
+@app.on_event("shutdown")
+def _stop_scheduler_on_shutdown():
+    stop_task_scheduler()
+
+
+class ReminderRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    details: str | None = Field(default=None, max_length=2000)
+    due_at: str = Field(min_length=1, max_length=100)
+
+
+@app.get("/tasks", dependencies=[Depends(require_admin)])
+def get_tasks(
+    status: Literal["pending", "due", "done", "cancelled"] | None = None,
+    due_only: bool = False,
+    include_done: bool = False,
+    limit: int = 100,
+):
+    """List scheduled tasks/reminders (admin token required)."""
+    try:
+        tasks = list_tasks(
+            status=status,
+            due_only=due_only,
+            include_done=include_done,
+            limit=limit,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Task list error: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not load scheduled tasks.",
+        ) from exc
+
+    return {
+        "tasks": tasks,
+        "total": len(tasks),
+        "due_count": sum(1 for task in tasks if task["status"] == "due"),
+    }
+
+
+@app.post("/tasks/reminders", dependencies=[Depends(require_admin)])
+def create_reminder(request: ReminderRequest):
+    """Store a reminder for the operator."""
+    due_at = _parse_follow_up_at(request.due_at)
+
+    try:
+        task = create_task(
+            "reminder",
+            request.title,
+            due_at,
+            details=request.details,
+            source="operator",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Reminder create error: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save the reminder.",
+        ) from exc
+
+    log_event("task_created", task_id=task["id"], task_type="reminder")
+    return {"success": True, "task": task}
+
+
+@app.post("/tasks/{task_id}/done", dependencies=[Depends(require_admin)])
+def complete_task(task_id: int):
+    return _set_task_status(task_id, "done")
+
+
+@app.post("/tasks/{task_id}/cancel", dependencies=[Depends(require_admin)])
+def cancel_task(task_id: int):
+    return _set_task_status(task_id, "cancelled")
+
+
+def _set_task_status(task_id: int, status: str):
+    try:
+        task = update_task_status(task_id, status)
+    except Exception as exc:
+        print(f"Task update error: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not update the task.",
+        ) from exc
+
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    log_event("task_updated", task_id=task_id, status=status)
+    return {"success": True, "task": task}
+
+
+# --------------------------------------------------
 # Operator assistant (chatbot that runs real actions)
 # --------------------------------------------------
 
@@ -944,6 +1401,17 @@ ASSISTANT_ACTIONS = {
     "callbacks_due": (
         "List scheduled callback reviews. args: {due_only: bool "
         "(default true)}"
+    ),
+    "add_reminder": (
+        "Store a reminder for the operator. args: {title, due_at "
+        "(ISO-8601 or 'in 2 hours')}"
+    ),
+    "list_tasks": (
+        "List scheduled tasks and reminders. args: {due_only: bool, "
+        "include_done: bool}"
+    ),
+    "complete_task": (
+        "Mark a scheduled task done. args: {task_id (number)}"
     ),
     "pipeline_status": (
         "Show pipeline job status. args: {job_id (optional; latest if "
@@ -1013,6 +1481,8 @@ def _parse_follow_up_at(value):
         return None
 
     text = str(value).strip()
+    if text.lower().startswith("at "):
+        text = text[3:].strip()
 
     relative = re.match(
         r"^in\s+(\d{1,4})\s*(minute|min|hour|hr|day)s?$", text, re.IGNORECASE
@@ -1052,6 +1522,48 @@ def _assistant_fallback_plan(message: str) -> dict:
 
     if any(word in lowered for word in ("help", "what can you do")):
         return {"action": "help", "args": {}}
+
+    if any(
+        phrase in lowered
+        for phrase in (
+            "my tasks",
+            "what do i need to do",
+            "what should i do",
+            "what's due",
+            "what is due",
+            "scheduled tasks",
+            "reminders",
+            "to-do list",
+            "todo list",
+        )
+    ):
+        return {"action": "list_tasks", "args": {}}
+
+    task_done = re.match(
+        r"^(?:mark\s+)?task\s+#?(\d+)\s+(?:as\s+)?"
+        r"(?:done|complete|completed)$",
+        lowered,
+    )
+    if task_done:
+        return {
+            "action": "complete_task",
+            "args": {"task_id": int(task_done.group(1))},
+        }
+
+    reminder = re.match(
+        r"^remind me(?:\s+to)?\s+(.+?)"
+        r"(?:\s+(in\s+\d+\s+(?:minutes?|hours?|days?)|at\s+\S+))?$",
+        text,
+        re.IGNORECASE,
+    )
+    if reminder and reminder.group(1).strip():
+        return {
+            "action": "add_reminder",
+            "args": {
+                "title": reminder.group(1).strip()[:200],
+                "due_at": (reminder.group(2) or "in 1 hour").strip(),
+            },
+        }
 
     if any(
         phrase in lowered
@@ -1139,6 +1651,8 @@ def plan_assistant_action(message: str) -> dict:
                         + "\nFor callback_requested, compute follow_up_at as an "
                         "ISO-8601 datetime in the future (or echo the "
                         "operator's relative phrase like 'in 2 hours')."
+                        "\nFor add_reminder, put the reminder text in title "
+                        "and the time in due_at ('in 2 hours' is fine too)."
                     ),
                 },
                 {"role": "user", "content": message},
@@ -1169,10 +1683,11 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
             "I can do these for you: show metrics, search carriers, reserve "
             "the next carrier, save a review (e.g. \"mark 1234567 interested\" "
             "or \"mark 1234567 callback in 2 hours\"), list callbacks that "
-            "are due, show pipeline job status and leads, and prepare the "
-            "Excel export (e.g. \"export interested carriers to excel\"). "
-            "I never delete data, never make real phone calls, and never "
-            "spend money.",
+            "are due, keep reminders (\"remind me to ... in 2 hours\"), "
+            "list what is due, mark tasks done, show pipeline job status "
+            "and leads, and prepare the Excel export (e.g. \"export "
+            "interested carriers to excel\"). I never delete data, never "
+            "make real phone calls, and never spend money.",
             {"actions": sorted(ASSISTANT_ACTIONS)},
         )
 
@@ -1291,6 +1806,75 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
             "in total:\n" + "\n".join(lines) + "\nNo call is placed "
             "automatically while calling is offline.",
             data,
+        )
+
+    if action == "add_reminder":
+        title = str(args.get("title", "")).strip()[:200]
+        if not title:
+            raise HTTPException(
+                status_code=400,
+                detail="A reminder needs a title.",
+            )
+
+        due_at = _parse_follow_up_at(args.get("due_at", "in 1 hour"))
+        task = create_task(
+            "reminder",
+            title,
+            due_at,
+            details=args.get("details"),
+            source="assistant",
+        )
+        log_event("task_created", task_id=task["id"], task_type="reminder")
+        return (
+            f"Reminder #{task['id']} saved for "
+            f"{due_at.isoformat(timespec='minutes')}: {title}. "
+            "It will show as due at that time; no call is placed.",
+            task,
+        )
+
+    if action == "list_tasks":
+        include_done = args.get("include_done", False)
+        if isinstance(include_done, str):
+            include_done = include_done.strip().lower() in ("true", "1", "yes")
+
+        tasks = list_tasks(include_done=bool(include_done))
+        due_tasks = [task for task in tasks if task["status"] == "due"]
+
+        if not tasks:
+            return (
+                "Nothing scheduled. Say e.g. "
+                "\"remind me to check carrier prices in 2 hours\".",
+                {"tasks": []},
+            )
+
+        lines = [
+            f"#{task['id']} {task['title']} — due {str(task['due_at'])[:16]} "
+            f"[{task['status']}]"
+            for task in tasks[:10]
+        ]
+        return (
+            f"{len(due_tasks)} task(s) due now, {len(tasks)} open in total:\n"
+            + "\n".join(lines),
+            {"tasks": tasks, "due_count": len(due_tasks)},
+        )
+
+    if action == "complete_task":
+        try:
+            task_id = int(args.get("task_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="A numeric task id is required.",
+            )
+
+        task = update_task_status(task_id, "done")
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found.")
+
+        log_event("task_updated", task_id=task_id, status="done")
+        return (
+            f"Task #{task_id} marked done: {task['title']}.",
+            task,
         )
 
     if action == "pipeline_status":
@@ -2035,6 +2619,23 @@ def save_carrier_review(request: CarrierReviewRequest):
                         "review_status": request.review_status,
                     },
                 )
+
+                # A requested callback becomes a persistent scheduled task
+                # so it is not lost on restart and shows up when due.
+                if (
+                    request.review_status == "callback_requested"
+                    and request.follow_up_at is not None
+                ):
+                    _insert_task(
+                        cur,
+                        task_type="callback",
+                        title=f"Call back carrier {request.usdot_number}",
+                        due_at=request.follow_up_at,
+                        usdot_number=request.usdot_number,
+                        details=request.notes,
+                        source="carrier_review",
+                        payload={"review_id": row[0]},
+                    )
 
                 return {
                     "success": True,

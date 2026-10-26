@@ -150,6 +150,20 @@
     font-size: .82rem; font-weight: 500; cursor: pointer;
   }
   .chip:hover { border-color: var(--accent); color: var(--text); }
+  .tasks-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; flex-wrap: wrap;
+  }
+  #tasksTable td { vertical-align: top; }
+  tr.due-row td { background: #2b1a1e; }
+  .status-pill {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+    padding: 2px 8px; border-radius: 999px; font-weight: 700;
+    display: inline-block;
+  }
+  .status-pill.pending { background: #232c42; color: var(--muted); }
+  .status-pill.due { background: #461d22; color: #ffb3b8; }
+  .tiny { padding: 5px 10px; font-size: .8rem; border-radius: 7px; }
 </style>
 </head>
 <body>
@@ -172,6 +186,7 @@
       <button type="button" class="chip" data-msg="Pipeline status">Pipeline status</button>
       <button type="button" class="chip" data-msg="Reserve the next carrier">Next carrier</button>
       <button type="button" class="chip" data-msg="Callbacks due">Callbacks due</button>
+      <button type="button" class="chip" data-msg="My tasks">My tasks</button>
       <button type="button" class="chip" data-msg="What can you do?">What can you do?</button>
     </div>
     <div class="export-row">
@@ -191,6 +206,25 @@
              placeholder="e.g. search logistics carriers, show pipeline status, mark 1234567 interested">
       <button id="assistantSend" type="submit">Send</button>
     </form>
+  </div>
+
+  <!-- Scheduled tasks -->
+  <div class="card" id="tasksCard">
+    <div class="tasks-head">
+      <h2 style="font-size:1.15rem;margin:0">🗓 Scheduled tasks &amp; reminders</h2>
+      <button id="refreshTasks" type="button" style="padding:7px 14px">Refresh</button>
+    </div>
+    <p class="muted" style="margin:6px 0 14px;font-size:.88rem">
+      Stored in PostgreSQL and checked automatically. A due task is a
+      reminder for you — the app never places a call on its own.
+    </p>
+    <div id="tasksEmpty" class="muted">No tasks scheduled.</div>
+    <table class="hidden" id="tasksTable">
+      <thead><tr>
+        <th>Due</th><th>Task</th><th>Carrier</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="taskRows"></tbody>
+    </table>
   </div>
 
   <!-- Upload -->
@@ -277,6 +311,7 @@
   document.getElementById("saveToken").onclick = () => {
     sessionStorage.setItem("admin_token", document.getElementById("token").value.trim());
     stateEl.textContent = "Token saved for this tab.";
+    loadTasks();
   };
 
   function authHeaders() {
@@ -556,6 +591,96 @@
       exportBtn.disabled = false;
     }
   };
+
+  // ---- Scheduled tasks ----
+  const tasksTable = document.getElementById("tasksTable");
+  const tasksEmpty = document.getElementById("tasksEmpty");
+  const taskRows = document.getElementById("taskRows");
+
+  async function loadTasks() {
+    try {
+      const res = await fetch("/tasks?limit=100", {headers: authHeaders()});
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 503) {
+          tasksEmpty.textContent = "🔒 Save your admin token to see scheduled tasks.";
+          tasksEmpty.classList.remove("hidden");
+          tasksTable.classList.add("hidden");
+        }
+        return;
+      }
+
+      const body = await res.json();
+      const tasks = body.tasks || [];
+      taskRows.innerHTML = "";
+
+      if (!tasks.length) {
+        tasksEmpty.textContent =
+          "No tasks scheduled. Ask the assistant: " +
+          "\"remind me to check carrier prices in 2 hours\".";
+        tasksEmpty.classList.remove("hidden");
+        tasksTable.classList.add("hidden");
+        return;
+      }
+
+      tasksEmpty.classList.add("hidden");
+      tasksTable.classList.remove("hidden");
+
+      for (const task of tasks) {
+        const tr = document.createElement("tr");
+        if (task.status === "due") tr.className = "due-row";
+        tr.innerHTML =
+          "<td>" + esc((task.due_at || "").replace("T", " ").slice(0, 16)) + "</td>" +
+          "<td>" + esc(task.title) + "</td>" +
+          "<td>" + esc(task.usdot_number || "—") + "</td>" +
+          '<td><span class="status-pill ' + esc(task.status) + '">' +
+            esc(task.status) + "</span></td>" +
+          "<td></td>";
+
+        const actions = tr.lastElementChild;
+        if (task.status === "pending" || task.status === "due") {
+          const done = document.createElement("button");
+          done.textContent = "Done";
+          done.className = "tiny";
+          done.onclick = () => setTaskStatus(task.id, "done");
+          actions.appendChild(done);
+        }
+        if (task.status === "pending") {
+          const cancel = document.createElement("button");
+          cancel.textContent = "Cancel";
+          cancel.className = "tiny";
+          cancel.style.background = "#3a4257";
+          cancel.onclick = () => setTaskStatus(task.id, "cancel");
+          actions.appendChild(cancel);
+        }
+
+        taskRows.appendChild(tr);
+      }
+    } catch (err) {
+      // Keep the previous view if the refresh fails.
+    }
+  }
+
+  async function setTaskStatus(taskId, action) {
+    try {
+      const res = await fetch("/tasks/" + taskId + "/" + action, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        addMessage("error", "Task update failed: " + (body.detail || res.status));
+        return;
+      }
+      loadTasks();
+      addMessage("bot", "Task #" + taskId + " " + (action === "done" ? "marked done." : "cancelled."));
+    } catch (err) {
+      addMessage("error", "Task update error: " + err.message);
+    }
+  }
+
+  document.getElementById("refreshTasks").onclick = loadTasks;
+  loadTasks();
+  setInterval(loadTasks, 30000);
 
   // Restore token if this tab already has one
   const saved = sessionStorage.getItem("admin_token");

@@ -299,6 +299,25 @@ invalid_number, failed — covered by tests.
 > (`carrier_leads_interested.xlsx`, 5,491 bytes). Browser-verified the
 > new chip and download button. No production rows were written; no
 > call was placed. Full suite **136 passed / 0 failed / 0 skipped**.
+>
+> **Persistent task queue record (2026-10-26):** added
+> `public.scheduled_tasks` (auto-created at startup, indexed on
+> `status, due_at`) plus a background worker that flips `pending` →
+> `due` every `TASK_SCHEDULER_POLL_SECONDS` (default 30) and logs
+> `task_due`. Callback reviews now create their own task at
+> `follow_up_at` (rescheduling cancels the old one); existing callbacks
+> are backfilled once. Assistant commands: `remind me to <thing> in 2
+> hours`, `my tasks` / `what do I need to do`, `mark task N done`;
+> HTTP: `GET /tasks`, `POST /tasks/reminders`,
+> `POST /tasks/{id}/done|cancel` (admin). The pipeline page shows a
+> Scheduled tasks & reminders card with Done/Cancel and a 30 s refresh.
+> **The worker never dials** — a due task is an operator reminder while
+> calling is offline. Verified live: reminder #1 created via chat
+> (pending), worker flipped it to due with `notified_at`, marked done;
+> reminder #2 created and completed through the browser card (open
+> tasks back to 0). Only the new task table was written; lead/review
+> data untouched. Full suite **164 passed / 0 failed / 0 skipped**
+> (28 new task tests).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
