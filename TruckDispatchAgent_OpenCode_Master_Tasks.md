@@ -250,6 +250,20 @@ invalid_number, failed — covered by tests.
 > against injection. Read-only production-DB check: 0 carriers carry
 > DNC/revoked consent flags; `operator_audit_log` empty (no production
 > writes made by tests). Remaining open items below.
+>
+> **Safety milestone record (2026-10-26):** Git checkpoint created
+> (`7a6c7e1`; `.env`, `output/`, PDFs, audio ignored and verified
+> unstaged). Admin auth added: all admin/data endpoints require
+> `Authorization: Bearer <ADMIN_API_TOKEN>`; fail-closed 503 when
+> unconfigured; 401 on missing/wrong token. 20 new auth tests; full
+> suite **73 passed / 0 failed / 0 skipped**. Browser-verified
+> dashboard: locked before token entry, live data after token. Public
+> (token-free): `/`, `/health`, `/chat`, `/ui`, `/dashboard` page shell,
+> and all Adam voice routes (voice assistant preserved, calling still
+> offline). Open: yesterday's chat-public test made one real (unmocked)
+> Groq call before it was fixed and fully mocked.
+> **Phase 7 load discovery: PLANNED, not implemented** (plan reported
+> to operator; no integrations or paid services activated).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
