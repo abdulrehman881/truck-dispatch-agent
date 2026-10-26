@@ -194,11 +194,32 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
                 time.sleep(FMCSA_CALL_DELAY)
 
             summary["verified"] = len(verified_records)
-            stage["status"] = "done"
-            stage["detail"] = (
-                f"{len(verified_records)} carrier(s) verified"
+            responded = sum(
+                1
+                for item in verified_records
+                if item.get("lookup_status")
+                in {"response_received", "needs_manual_review"}
             )
-            log(f"FMCSA verification complete: {len(verified_records)}")
+            failed = len(verified_records) - responded
+            stage["status"] = "done"
+            if responded:
+                stage["detail"] = (
+                    f"{responded} of {len(verified_records)} carrier(s) "
+                    f"verified" + (f" ({failed} failed)" if failed else "")
+                )
+            else:
+                stage["detail"] = (
+                    f"0 of {len(verified_records)} verified - "
+                    "FMCSA API unreachable/blocked"
+                )
+            log(f"FMCSA verification complete: {responded} verified, "
+                f"{failed} failed")
+            if responded == 0 and verified_records:
+                log(
+                    "WARNING: the FMCSA API returned errors for every "
+                    "carrier. Check network access (FMCSA blocks many "
+                    "non-US IPs) or the FMCSA_WEB_KEY value."
+                )
             working_records = verified_records
 
         _save(run_dir, "03_verified.json", working_records)
