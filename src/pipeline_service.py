@@ -21,8 +21,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RUNS_ROOT = PROJECT_ROOT / "output" / "pipeline_runs"
+
+# Load .env so FMCSA_WEB_KEY behaves the same as when running the
+# phase scripts directly.
+load_dotenv(PROJECT_ROOT / ".env")
 
 # Rate limit between FMCSA API calls during the verify stage, seconds.
 FMCSA_CALL_DELAY = 0.25

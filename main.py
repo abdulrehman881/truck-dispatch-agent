@@ -16,7 +16,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
-from fastapi import Depends
+from fastapi import Depends, Form
 from pydantic import BaseModel, Field
 from groq import Groq
 from fastapi.responses import FileResponse
@@ -33,6 +33,13 @@ from fastapi.responses import StreamingResponse
 
 # Load API keys from the project root
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+# Make the src/ phase modules importable under uvicorn as well as tests.
+import sys as _sys
+
+_src_dir = str(PROJECT_ROOT / "src")
+if _src_dir not in _sys.path:
+    _sys.path.append(_src_dir)
 load_dotenv(PROJECT_ROOT / ".env")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -739,8 +746,8 @@ def pipeline_page():
 )
 async def pipeline_upload(
     file: UploadFile = File(...),
-    import_to_db: bool = Query(False),
-    max_records: int = Query(25, ge=1, le=PIPELINE_MAX_RECORDS),
+    import_to_db: bool = Form(False),
+    max_records: int = Form(25),
 ):
     """Start a pipeline run on an uploaded USDOT-carrier PDF.
 
@@ -749,6 +756,13 @@ async def pipeline_upload(
     is opt-in (dry run by default).
     """
     import pipeline_service
+
+    if not (1 <= max_records <= PIPELINE_MAX_RECORDS):
+        raise HTTPException(
+            status_code=400,
+            detail=f"max_records must be between 1 and "
+                   f"{PIPELINE_MAX_RECORDS}.",
+        )
 
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(
@@ -812,7 +826,6 @@ async def pipeline_upload(
         "import_to_db": import_to_db,
         "max_records": max_records,
     }
-
 
 @app.get(
     "/pipeline/leads/{job_id}",
