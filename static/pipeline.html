@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TruckDispatchAgent — Carrier Pipeline</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel-2: #1d2638;
+    --border: #2a3752;
+    --text: #e7ecf5;
+    --muted: #93a0b8;
+    --accent: #4f8cff;
+    --ok: #37c98b;
+    --warn: #f0b64b;
+    --err: #ef6a6a;
+    --skip: #8a93a8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: linear-gradient(160deg, var(--bg), #141b2c 60%, #101724);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 22px; font-size: .95rem; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    color: var(--muted);
+    transition: border-color .2s, background .2s;
+    cursor: pointer;
+  }
+  .drop.over { border-color: var(--accent); background: #1a2438; }
+  .drop strong { color: var(--text); }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 16px; }
+  input[type="password"], input[type="number"] {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: .95rem;
+  }
+  label.opt { color: var(--muted); font-size: .92rem; display: flex; gap: 7px; align-items: center; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 9px;
+    padding: 10px 20px;
+    font-size: .98rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .file-badge { color: var(--ok); font-size: .92rem; }
+  /* stages */
+  .stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .stage {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    position: relative;
+    min-height: 88px;
+  }
+  .stage .name { font-weight: 600; margin-bottom: 6px; }
+  .stage .detail { color: var(--muted); font-size: .85rem; line-height: 1.35; }
+  .badge { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; font-weight: 700; display: inline-block; margin-bottom: 8px; }
+  .badge.pending { background: #232c42; color: var(--muted); }
+  .badge.running { background: #22406e; color: #9cc4ff; }
+  .badge.done { background: #14392b; color: var(--ok); }
+  .badge.skipped { background: #2c3140; color: var(--skip); }
+  .badge.failed { background: #461d22; color: var(--err); }
+  .spinner {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 2px solid #33507f; border-top-color: #9cc4ff;
+    animation: spin .8s linear infinite; display: inline-block;
+    vertical-align: -3px; margin-right: 7px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* rail */
+  .rail { height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin: 4px 0 16px; }
+  .rail > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--ok)); transition: width .4s; }
+  /* log + results */
+  .log {
+    background: #0b0f18; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; font-family: Consolas, monospace; font-size: .82rem;
+    color: #a9b6cc; height: 240px; overflow-y: auto; white-space: pre-wrap;
+  }
+  .log .errline { color: var(--err); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+  .prio { font-weight: 700; }
+  .prio.high { color: var(--ok); } .prio.medium { color: var(--warn); } .prio.low { color: var(--skip); }
+  .muted { color: var(--muted); }
+  .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 18px; }
+  .stat .num { font-size: 1.4rem; font-weight: 700; }
+  .stat .lbl { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🚛 Carrier Pipeline</h1>
+  <p class="sub">Upload an FMCSA registration PDF → the agent extracts carriers, classifies
+  them, verifies against the official FMCSA API, scores &amp; qualifies every lead,
+  and (optionally) imports them to the database. Live progress below.</p>
+
+  <!-- Upload -->
+  <div class="card">
+    <div>
+      <input id="token" type="password" placeholder="Admin token (kept in this tab only)" size="34">
+      <span class="muted" style="font-size:.85rem">Save token</span>
+      <button id="saveToken" style="padding:8px 14px">Save</button>
+    </div>
+    <hr style="border-color:var(--border);opacity:.4;margin:16px 0">
+    <div id="drop" class="drop">
+      <strong>Drag &amp; drop the carrier PDF here</strong><br>
+      or click to choose a file
+      <input id="file" type="file" accept=".pdf,application/pdf" class="hidden">
+    </div>
+    <div class="controls">
+      <span id="fileName" class="file-badge"></span>
+      <label class="opt">Max records
+        <input id="maxRecords" type="number" min="1" max="200" value="25" style="width:80px">
+      </label>
+      <label class="opt">
+        <input id="importDb" type="checkbox"> Import to database (dry run if unchecked)
+      </label>
+      <button id="start" disabled>Run pipeline</button>
+      <span id="uploadState" class="muted" style="font-size:.9rem"></span>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="card hidden" id="progressCard">
+    <div class="rail"><div id="railFill"></div></div>
+    <div class="stages" id="stages"></div>
+    <h3 style="margin:18px 0 8px;font-size:1rem">Live log</h3>
+    <div class="log" id="log"></div>
+  </div>
+
+  <!-- Results -->
+  <div class="card hidden" id="resultsCard">
+    <h2 style="font-size:1.15rem;margin:0 0 12px">Pipeline results</h2>
+    <div class="summary" id="summary"></div>
+    <table>
+      <thead><tr>
+        <th>USDOT</th><th>Company</th><th>Phone</th><th>Sources</th>
+        <th>Fleet</th><th>Score</th><th>Priority</th><th>Status flags</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const drop     = document.getElementById("drop");
+  const fileEl   = document.getElementById("file");
+  const fileName = document.getElementById("fileName");
+  const startBtn = document.getElementById("start");
+  const stateEl  = document.getElementById("uploadState");
+
+  let selectedFile = null;
+  let pollTimer = null;
+
+  drop.onclick = () => fileEl.click();
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    if (e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]);
+  };
+  fileEl.onchange = () => fileEl.files.length && pickFile(fileEl.files[0]);
+
+  function pickFile(f) {
+    if (!f.name.toLowerCase().endsWith(".pdf")) {
+      fileName.textContent = "⚠ Please choose a PDF file";
+      fileName.style.color = "var(--err)";
+      selectedFile = null;
+    } else {
+      fileName.textContent = "📄 " + f.name + " (" + (f.size/1024).toFixed(0) + " KB)";
+      fileName.style.color = "var(--ok)";
+      selectedFile = f;
+    }
+    startBtn.disabled = !selectedFile;
+  }
+
+  document.getElementById("saveToken").onclick = () => {
+    sessionStorage.setItem("admin_token", document.getElementById("token").value.trim());
+    stateEl.textContent = "Token saved for this tab.";
+  };
+
+  function authHeaders() {
+    const t = sessionStorage.getItem("admin_token") || "";
+    return t ? {"Authorization": "Bearer " + t} : {};
+  }
+
+  startBtn.onclick = async () => {
+    if (!selectedFile) return;
+    startBtn.disabled = true;
+    stateEl.textContent = "Uploading…";
+
+    const form = new FormData();
+    form.append("file", selectedFile);
+    form.append("import_to_db", document.getElementById("importDb").checked);
+    form.append("max_records", document.getElementById("maxRecords").value);
+
+    try {
+      const res = await fetch("/pipeline/upload", {method: "POST", headers: authHeaders(), body: form});
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 503) {
+        stateEl.textContent = "🔒 " + (body.detail || "Admin token required — save it above first.");
+        startBtn.disabled = false;
+        return;
+      }
+      if (!res.ok) {
+        stateEl.textContent = "Upload failed: " + (body.detail || res.status);
+        startBtn.disabled = false;
+        return;
+      }
+      stateEl.textContent = "Pipeline running (job " + body.job_id + ")…";
+      document.getElementById("progressCard").classList.remove("hidden");
+      document.getElementById("resultsCard").classList.add("hidden");
+      watch(body.job_id);
+    } catch (err) {
+      stateEl.textContent = "Upload error: " + err.message;
+      startBtn.disabled = false;
+    }
+  };
+
+  const STAGE_ORDER = ["extract", "prepare", "verify", "qualify", "import"];
+  const stageEls = {};
+
+  function renderStages(stages) {
+    const host = document.getElementById("stages");
+    if (!host.children.length) {
+      for (const name of STAGE_ORDER) {
+        const el = document.createElement("div");
+        el.className = "stage";
+        el.innerHTML = '<span class="badge pending">Pending</span><div class="name"></div><div class="detail"></div>';
+        host.appendChild(el);
+        stageEls[name] = el;
+      }
+    }
+    let completed = 0;
+    for (const s of stages) {
+      const el = stageEls[s.name];
+      if (!el) continue;
+      const badge = el.querySelector(".badge");
+      badge.className = "badge " + s.status;
+      badge.innerHTML = s.status === "running"
+        ? '<span class="spinner"></span>Running'
+        : s.status.charAt(0).toUpperCase() + s.status.slice(1);
+      el.querySelector(".name").textContent = s.label || s.name;
+      el.querySelector(".detail").textContent = s.detail || "";
+      if (["done", "skipped"].includes(s.status)) completed++;
+      if (s.status === "failed") completed++;
+    }
+    document.getElementById("railFill").style.width = (completed / stages.length * 100) + "%";
+  }
+
+  function appendLogs(lines) {
+    const logEl = document.getElementById("log");
+    for (const line of lines) {
+      const div = document.createElement("div");
+      if (line.includes("PIPELINE ERROR")) div.className = "errline";
+      div.textContent = line;
+      logEl.appendChild(div);
+    }
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function esc(v) {
+    const d = document.createElement("div");
+    d.textContent = v == null ? "" : v;
+    return d.innerHTML;
+  }
+
+  function showResults(job) {
+    const r = job.results || {};
+    const stat = (k, label) => '<div class="stat"><div class="num">' + esc(r[k] ?? "—") +
+      '</div><div class="lbl">' + label + '</div></div>';
+    document.getElementById("summary").innerHTML =
+      stat("records_extracted", "Records extracted") +
+      stat("candidates", "Candidates") +
+      (r.verified != null ? stat("verified", "FMCSA verified") : "") +
+      stat("qualified", "Qualified leads") +
+      (r.imported != null ? stat("imported", "DB imported") : "");
+
+    fetch("/pipeline/leads/" + job.job_id, {headers: authHeaders()})
+      .then(res => res.ok ? res.json() : [])
+      .then(leads => {
+        const tbody = document.getElementById("rows");
+        tbody.innerHTML = "";
+        for (const l of leads.slice(0, 50)) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + esc(l.usdot_number) + "</td>" +
+            "<td>" + esc(l.company_name) + "</td>" +
+            "<td>" + esc(l.phone) + "</td>" +
+            "<td>" + esc(l.category_summary) + "</td>" +
+            "<td>" + esc(l.vehicle_count) + "</td>" +
+            "<td>" + esc(l.lead_score) + "</td>" +
+            '<td class="prio ' + esc(l.priority) + '">' + esc(l.priority) + "</td>" +
+            "<td>" + esc((l.review_reasons || []).join(", ")) + "</td>";
+          tbody.appendChild(tr);
+        }
+        if (!leads.length) {
+          tbody.innerHTML = '<tr><td colspan="8" class="muted">No qualified leads.</td></tr>';
+        }
+        document.getElementById("resultsCard").classList.remove("hidden");
+      });
+  }
+
+  function watch(jobId) {
+    clearInterval(pollTimer);
+    let logCount = 0;
+    pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch("/pipeline/status/" + jobId, {headers: authHeaders()});
+        if (!res.ok) { if (res.status === 401) { clearInterval(pollTimer); stateEl.textContent = "🔒 Token needed — save it above."; } return; }
+        const job = await res.json();
+        renderStages(job.stages);
+        if (job.log_lines.length > logCount) {
+          appendLogs(job.log_lines.slice(logCount));
+          logCount = job.log_lines.length;
+        }
+        if (job.status === "done" || job.status === "failed") {
+          clearInterval(pollTimer);
+          stateEl.textContent = job.status === "done"
+            ? "✅ Pipeline finished."
+            : "❌ Pipeline failed: " + (job.error || "unknown error");
+          startBtn.disabled = !selectedFile;
+          if (job.status === "done") showResults(job);
+        }
+      } catch (err) {/* keep polling */}
+    }, 1000);
+  }
+
+  // Restore token if this tab already has one
+  const saved = sessionStorage.getItem("admin_token");
+  if (saved) document.getElementById("token").value = saved;
+</script>
+</body>
+</html>

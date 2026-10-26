@@ -24,3 +24,7 @@ data/*.pdf
 *.sqlite
 *.sqlite3
 *.dump
+
+# Pipeline UI uploads and per-run outputs
+data/uploads/
+output/pipeline_runs/

@@ -83,13 +83,32 @@ python -m pytest tests -q
 | `POST /carrier-call-attempts` | Save a call outcome |
 | `GET /export-excel` | Export leads + reviews to Excel |
 | `GET /metrics` | Dashboard counts (admin token required) |
+| `GET /pipeline` | Carrier-pipeline UI (upload PDF → live stage progress) |
+| `POST /pipeline/upload` | Start a pipeline run on a PDF (admin token required) |
+| `GET /pipeline/status/{id}` | Live progress/logs of a pipeline run (admin) |
+| `GET /pipeline/leads/{id}` | Qualified leads of a finished run (admin) |
+
+#### Carrier pipeline UI (`/pipeline`)
+
+Upload an FMCSA registration PDF and the agent runs the full lead
+pipeline in the background — extract → clean/classify → FMCSA
+verification → score/qualify → optional database import (dry run by
+default; tick "Import to database" to write). Each stage shows live
+status, a scrolling run log, and the final scored-lead table. The job
+registry is in-memory only (runs vanish on server restart); per-run
+files are saved under `output/pipeline_runs/<job_id>/` and the
+production `output/` phase files are never touched. Runs operate on the
+uploaded copy in `data/uploads/` — production lead data is never
+modified by a UI run unless you explicitly enable the import stage.
 
 All admin/data endpoints (`/metrics`, `/carriers/search`,
 `/eligible-carriers`, `/next-carrier`, `/carrier-reviews`,
-`/carrier-call-attempts`, `/mock-call`, `/export-excel`) require
+`/carrier-call-attempts`, `/mock-call`, `/export-excel`,
+`/pipeline/upload`, `/pipeline/status/*`, `/pipeline/leads/*`) require
 `Authorization: Bearer <ADMIN_API_TOKEN>`. They fail closed (HTTP 503)
-when the token is not configured. Voice/chat endpoints and `/health`
-are public and never need the token.
+when the token is not configured. Voice/chat endpoints, `/pipeline`
+page, `/dashboard` page, and `/health` are public and never need the
+token (the data behind the dashboard/pipeline pages do).
 
 ## Lead lifecycle and outbound calling safety
 

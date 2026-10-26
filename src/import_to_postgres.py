@@ -33,6 +33,199 @@ def get_value(record, *possible_names, default=None):
     return default
 
 
+UPSERT_SQL = """
+INSERT INTO carrier_leads (
+    usdot_number,
+    company_name,
+    phone,
+    vehicle_count,
+    allow_to_operate,
+    carrier_status_code,
+    carrier_operation,
+    identity_match,
+    lookup_status,
+    lead_score,
+    priority,
+    basic_qualification_passed,
+    review_required,
+    review_reasons,
+    application_categories,
+    fleet_segment,
+    source_record
+)
+VALUES (
+    %s, %s, %s, %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s, %s, %s, %s, %s
+)
+ON CONFLICT (usdot_number) DO UPDATE SET
+    company_name = EXCLUDED.company_name,
+    phone = EXCLUDED.phone,
+    vehicle_count = EXCLUDED.vehicle_count,
+    allow_to_operate = EXCLUDED.allow_to_operate,
+    carrier_status_code = EXCLUDED.carrier_status_code,
+    carrier_operation = EXCLUDED.carrier_operation,
+    identity_match = EXCLUDED.identity_match,
+    lookup_status = EXCLUDED.lookup_status,
+    lead_score = EXCLUDED.lead_score,
+    priority = EXCLUDED.priority,
+    basic_qualification_passed =
+        EXCLUDED.basic_qualification_passed,
+    review_required = EXCLUDED.review_required,
+    review_reasons = EXCLUDED.review_reasons,
+    application_categories =
+        EXCLUDED.application_categories,
+    fleet_segment = EXCLUDED.fleet_segment,
+    source_record = EXCLUDED.source_record,
+    updated_at = CURRENT_TIMESTAMP;
+"""
+
+
+def record_to_params(record):
+    """Map one qualified-lead record to the UPSERT_SQL parameter tuple."""
+    usdot = get_value(record, "usdot_number", "usdot", "USDOTNumber")
+
+    if usdot is None:
+        return None
+
+    usdot = str(usdot).strip()
+
+    if not usdot:
+        return None
+
+    # Use verified company name when available
+    company_name = get_value(
+        record,
+        "official_legal_name",
+        "legal_business_name",
+        "company_name",
+        "source_company_name",
+        "business_name",
+    )
+
+    vehicle_count = get_value(
+        record, "vehicle_count", "power_units", "fleet_size"
+    )
+
+    try:
+        vehicle_count = (
+            int(vehicle_count)
+            if vehicle_count is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        vehicle_count = None
+
+    score = get_value(record, "lead_score", "score")
+    try:
+        score = int(score) if score is not None else None
+    except (TypeError, ValueError):
+        score = None
+
+    # Keep only selected fields in source_record.
+    # Do not copy raw FMCSA API responses or sensitive identifiers.
+    safe_source = {
+        key: record.get(key)
+        for key in (
+            "usdot_number",
+            "legal_business_name",
+            "source_company_name",
+            "official_legal_name",
+            "phone",
+            "vehicle_count",
+            "allow_to_operate",
+            "carrier_status_code",
+            "carrier_operation",
+            "identity_match",
+            "lookup_status",
+            "lead_score",
+            "priority",
+            "basic_qualification_passed",
+            "review_required",
+            "review_reasons",
+            "application_categories",
+        )
+        if key in record
+    }
+
+    # Serialize carrier_operation for the TEXT column.
+    carrier_operation = get_value(record, "carrier_operation")
+
+    if isinstance(carrier_operation, dict):
+        carrier_operation = json.dumps(carrier_operation)
+
+    return (
+        usdot,
+        company_name,
+        get_value(record, "phone", "telephone"),
+        vehicle_count,
+        get_value(record, "allow_to_operate", "allowed_to_operate"),
+        get_value(record, "carrier_status_code", "status_code"),
+        carrier_operation,
+        get_value(record, "identity_match"),
+        get_value(record, "lookup_status"),
+        score,
+        get_value(record, "priority"),
+        get_value(record, "basic_qualification_passed"),
+        get_value(record, "review_required"),
+        Jsonb(get_value(record, "review_reasons", default=[])),
+        Jsonb(get_value(record, "application_categories", default=[])),
+        get_value(record, "fleet_segment"),
+        Jsonb(safe_source),
+    )
+
+
+def upsert_records(cursor, records):
+    """Upsert records into carrier_leads via an existing open cursor.
+
+    Returns (imported, skipped). Used by main() and the pipeline UI job.
+    """
+    imported = 0
+    skipped = 0
+
+    cursor.execute(CREATE_TABLE_SQL)
+
+    for record in records:
+        if not isinstance(record, dict):
+            skipped += 1
+            continue
+
+        params = record_to_params(record)
+
+        if params is None:
+            skipped += 1
+            continue
+
+        cursor.execute(UPSERT_SQL, params)
+        imported += 1
+
+    return imported, skipped
+
+
+CREATE_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS carrier_leads (
+        usdot_number TEXT PRIMARY KEY,
+        company_name TEXT,
+        phone TEXT,
+        vehicle_count INTEGER,
+        allow_to_operate TEXT,
+        carrier_status_code TEXT,
+        carrier_operation TEXT,
+        identity_match BOOLEAN,
+        lookup_status TEXT,
+        lead_score INTEGER,
+        priority TEXT,
+        basic_qualification_passed BOOLEAN,
+        review_required BOOLEAN,
+        review_reasons JSONB,
+        application_categories JSONB,
+        fleet_segment TEXT,
+        source_record JSONB,
+        imported_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    );
+"""
+
+
 def main():
     if not DB_CONFIG["password"]:
         raise RuntimeError(
@@ -64,194 +257,7 @@ def main():
     with psycopg.connect(**DB_CONFIG) as connection:
         with connection.cursor() as cursor:
 
-            # Create a table for sanitized lead information
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS carrier_leads (
-                    usdot_number TEXT PRIMARY KEY,
-                    company_name TEXT,
-                    phone TEXT,
-                    vehicle_count INTEGER,
-                    allow_to_operate TEXT,
-                    carrier_status_code TEXT,
-                    carrier_operation TEXT,
-                    identity_match BOOLEAN,
-                    lookup_status TEXT,
-                    lead_score INTEGER,
-                    priority TEXT,
-                    basic_qualification_passed BOOLEAN,
-                    review_required BOOLEAN,
-                    review_reasons JSONB,
-                    application_categories JSONB,
-                    fleet_segment TEXT,
-                    source_record JSONB,
-                    imported_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-
-            imported = 0
-            skipped = 0
-
-            for record in records:
-                if not isinstance(record, dict):
-                    skipped += 1
-                    continue
-
-                usdot = get_value(
-                    record, "usdot_number", "usdot", "USDOTNumber"
-                )
-
-                if usdot is None:
-                    skipped += 1
-                    continue
-
-                usdot = str(usdot).strip()
-
-                if not usdot:
-                    skipped += 1
-                    continue
-                
-                for key, value in record.items():
-                    if isinstance(value, dict):
-                        print(f"Dictionary field found: {key}")
-
-
-                # Use verified company name when available
-                company_name = get_value(
-                    record,
-                    "official_legal_name",
-                    "legal_business_name",
-                    "company_name",
-                    "source_company_name",
-                    "business_name",
-                )
-
-                vehicle_count = get_value(
-                    record, "vehicle_count", "power_units", "fleet_size"
-                )
-
-                try:
-                    vehicle_count = (
-                        int(vehicle_count)
-                        if vehicle_count is not None
-                        else None
-                    )
-                except (TypeError, ValueError):
-                    vehicle_count = None
-
-                score = get_value(record, "lead_score", "score")
-                try:
-                    score = int(score) if score is not None else None
-                except (TypeError, ValueError):
-                    score = None
-
-                # Keep only selected fields in source_record.
-                # Do not copy raw FMCSA API responses or sensitive identifiers.
-                safe_source = {
-                    key: record.get(key)
-                    for key in (
-                        "usdot_number",
-                        "legal_business_name",
-                        "source_company_name",
-                        "official_legal_name",
-                        "phone",
-                        "vehicle_count",
-                        "allow_to_operate",
-                        "carrier_status_code",
-                        "carrier_operation",
-                        "identity_match",
-                        "lookup_status",
-                        "lead_score",
-                        "priority",
-                        "basic_qualification_passed",
-                        "review_required",
-                        "review_reasons",
-                        "application_categories",
-                    )
-                    if key in record
-                }
-                
-                
-                # Serialize carrier_operation for the TEXT column.
-                carrier_operation = get_value(record, "carrier_operation")
-
-                if isinstance(carrier_operation, dict):
-                    carrier_operation = json.dumps(carrier_operation)
-
-                cursor.execute(
-                    """
-                    INSERT INTO carrier_leads (
-                        usdot_number,
-                        company_name,
-                        phone,
-                        vehicle_count,
-                        allow_to_operate,
-                        carrier_status_code,
-                        carrier_operation,
-                        identity_match,
-                        lookup_status,
-                        lead_score,
-                        priority,
-                        basic_qualification_passed,
-                        review_required,
-                        review_reasons,
-                        application_categories,
-                        fleet_segment,
-                        source_record
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s
-                    )
-                    ON CONFLICT (usdot_number) DO UPDATE SET
-                        company_name = EXCLUDED.company_name,
-                        phone = EXCLUDED.phone,
-                        vehicle_count = EXCLUDED.vehicle_count,
-                        allow_to_operate = EXCLUDED.allow_to_operate,
-                        carrier_status_code = EXCLUDED.carrier_status_code,
-                        carrier_operation = EXCLUDED.carrier_operation,
-                        identity_match = EXCLUDED.identity_match,
-                        lookup_status = EXCLUDED.lookup_status,
-                        lead_score = EXCLUDED.lead_score,
-                        priority = EXCLUDED.priority,
-                        basic_qualification_passed =
-                            EXCLUDED.basic_qualification_passed,
-                        review_required = EXCLUDED.review_required,
-                        review_reasons = EXCLUDED.review_reasons,
-                        application_categories =
-                            EXCLUDED.application_categories,
-                        fleet_segment = EXCLUDED.fleet_segment,
-                        source_record = EXCLUDED.source_record,
-                        updated_at = CURRENT_TIMESTAMP;
-                    """,
-                    (
-                        usdot,
-                        company_name,
-                        get_value(record, "phone", "telephone"),
-                        vehicle_count,
-                        get_value(
-                            record, "allow_to_operate", "allowed_to_operate"
-                        ),
-                        get_value(record, "carrier_status_code", "status_code"),
-                        carrier_operation,
-                        get_value(record, "identity_match"),
-                        get_value(record, "lookup_status"),
-                        score,
-                        get_value(record, "priority"),
-                        get_value(record, "basic_qualification_passed"),
-                        get_value(record, "review_required"),
-                        Jsonb(get_value(record, "review_reasons", default=[])),
-                        Jsonb(
-                            get_value(
-                                record, "application_categories", default=[]
-                            )
-                        ),
-                        get_value(record, "fleet_segment"),
-                        Jsonb(safe_source),
-                    ),
-                )
-
-                imported += 1
+            imported, skipped = upsert_records(cursor, records)
 
         # Count the final unique records
         with connection.cursor() as cursor:

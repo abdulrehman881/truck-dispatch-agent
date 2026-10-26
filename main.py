@@ -707,6 +707,162 @@ def operator_dashboard():
     return FileResponse(dashboard_path, media_type="text/html")
 
 
+# --------------------------------------------------
+# Carrier-pipeline UI (upload PDF, run all phases, live progress)
+# --------------------------------------------------
+
+PIPELINE_UPLOAD_DIR = PROJECT_ROOT / "data" / "uploads"
+PIPELINE_MAX_PDF_BYTES = 25 * 1024 * 1024  # 25 MB
+PIPELINE_MAX_RECORDS = 200
+
+
+class PipelineUploadRequest:
+    """Parsed options for a pipeline run (filled from form fields)."""
+
+
+@app.get("/pipeline", include_in_schema=False)
+def pipeline_page():
+    pipeline_html = PROJECT_ROOT / "static" / "pipeline.html"
+
+    if not pipeline_html.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Pipeline page file was not found.",
+        )
+
+    return FileResponse(pipeline_html, media_type="text/html")
+
+
+@app.post(
+    "/pipeline/upload",
+    dependencies=[Depends(require_admin)],
+)
+async def pipeline_upload(
+    file: UploadFile = File(...),
+    import_to_db: bool = Query(False),
+    max_records: int = Query(25, ge=1, le=PIPELINE_MAX_RECORDS),
+):
+    """Start a pipeline run on an uploaded USDOT-carrier PDF.
+
+    Admin-token protected. The run is executed in a background thread;
+    poll `/pipeline/status/{job_id}` for live progress. Database import
+    is opt-in (dry run by default).
+    """
+    import pipeline_service
+
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are accepted.",
+        )
+
+    PIPELINE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Sanitize the stored filename; never trust the client's path.
+    safe_stem = "".join(
+        char if char.isalnum() or char in "._- " else "_"
+        for char in Path(file.filename).stem
+    ).strip() or "register"
+    destination = PIPELINE_UPLOAD_DIR / (
+        f"{uuid.uuid4().hex[:8]}_{safe_stem[:80]}.pdf"
+    )
+
+    size = 0
+    try:
+        with destination.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > PIPELINE_MAX_PDF_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="PDF exceeds the 25 MB limit.",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        destination.unlink(missing_ok=True)
+        raise
+    except OSError as error:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not save the uploaded PDF: {error}",
+        )
+
+    job = pipeline_service.start_job(
+        pdf_path=destination,
+        original_filename=file.filename,
+        import_to_db=import_to_db,
+        max_records=max_records,
+    )
+
+    log_event(
+        "pipeline_job_started",
+        job_id=job.job_id,
+        filename=file.filename,
+        size_bytes=size,
+        import_to_db=import_to_db,
+        max_records=max_records,
+    )
+
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "status_url": f"/pipeline/status/{job.job_id}",
+        "size_bytes": size,
+        "import_to_db": import_to_db,
+        "max_records": max_records,
+    }
+
+
+@app.get(
+    "/pipeline/leads/{job_id}",
+    dependencies=[Depends(require_admin)],
+)
+def pipeline_leads(job_id: str):
+    """Qualified leads produced by one pipeline job (admin-token protected)."""
+    import pipeline_service
+
+    job = pipeline_service.registry.get(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unknown pipeline job id.",
+        )
+
+    leads_file = pipeline_service.RUNS_ROOT / job_id / "04_qualified.json"
+    if not leads_file.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="This job has no qualified leads yet.",
+        )
+
+    try:
+        return json.loads(leads_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read job results: {error}",
+        )
+
+
+@app.get(
+    "/pipeline/status/{job_id}",
+    dependencies=[Depends(require_admin)],
+)
+def pipeline_status(job_id: str):
+    """Live progress of one pipeline job (admin-token protected)."""
+    import pipeline_service
+
+    job = pipeline_service.registry.get(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unknown pipeline job id.",
+        )
+
+    return job.to_dict()
+
+
 
 def make_sse_event(data: dict) -> str:
     """Format one server-sent event as JSON."""
