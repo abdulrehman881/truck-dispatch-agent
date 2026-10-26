@@ -1,0 +1,26 @@
+# Secrets and configuration
+.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Generated pipeline outputs and lead data (may contain PII)
+output/
+data/*.pdf
+
+# Generated audio
+*.mp3
+*.wav
+
+# DB dumps and local database files
+*.sql.bak
+*.db
+*.sqlite
+*.sqlite3
+*.dump

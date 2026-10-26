@@ -1,0 +1,539 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adam - Truck Dispatch Agent</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #101827;
+      color: white;
+    }
+    h1 { margin-bottom: 8px; }
+    p { color: #b8c4d8; }
+    button {
+      padding: 12px 18px;
+      margin: 8px 6px 8px 0;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    #start { background: #22c55e; color: #06210e; }
+    #stop { background: #ef4444; color: white; }
+    #status {
+      margin: 20px 0;
+      color: #86efac;
+    }
+    #conversation {
+      padding: 16px;
+      background: #1e293b;
+      border-radius: 10px;
+      min-height: 160px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>Adam — Truck Dispatch Agent</h1>
+  <p>Speak naturally. Adam will respond automatically.</p>
+
+  <button id="start">Start conversation</button>
+  <button id="stop">Stop</button>
+
+  <div id="status">Ready</div>
+  <div id="conversation">Your conversation will appear here.</div>
+
+  
+<script>
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  const statusEl = document.getElementById("status");
+  const conversationEl = document.getElementById("conversation");
+  const startButton = document.getElementById("start");
+  const stopButton = document.getElementById("stop");
+
+  if (!SpeechRecognition) {
+    statusEl.textContent =
+      "Speech recognition is unavailable. Try updated Google Chrome.";
+    startButton.disabled = true;
+    throw new Error("SpeechRecognition is not supported.");
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  let listeningEnabled = false;
+  let carrierSelectionAttempted = false;
+  let busy = false;
+  let assistantSpeaking = false;
+  let currentAudio = null;
+  let currentAbortController = null;
+  let requestNumber = 0;
+  let restartTimer = null;
+
+  // Give this browser tab its own conversation ID.
+  let conversationId = sessionStorage.getItem("adam_conversation_id");
+
+  if (!conversationId) {
+    conversationId = crypto.randomUUID();
+    sessionStorage.setItem("adam_conversation_id", conversationId);
+  }
+
+  // Microphone-based interruption detection
+  let micStream = null;
+  let audioContext = null;
+  let analyser = null;
+  let micData = null;
+  let micMonitor = null;
+  let speechStartedAt = 0;
+  let lastLoudAt = 0;
+  let interruptionTriggered = false;
+
+  const INTERRUPTION_THRESHOLD = 0.02;
+  const INTERRUPTION_HOLD_MS = 150;
+
+  function setStatus(message) {
+    statusEl.textContent = message;
+  }
+
+  function appendMessage(speaker, text) {
+    if (
+      conversationEl.textContent ===
+      "Your conversation will appear here."
+    ) {
+      conversationEl.textContent = "";
+    }
+
+    conversationEl.textContent += `${speaker}: ${text}\n\n`;
+    conversationEl.scrollTop = conversationEl.scrollHeight;
+  }
+
+  
+async function startMicMonitor() {
+  if (micMonitor) return;
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    audioContext = new AudioContext();
+    await audioContext.resume();
+
+    const source = audioContext.createMediaStreamSource(micStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+
+    source.connect(analyser);
+    micData = new Uint8Array(analyser.fftSize);
+
+    micMonitor = setInterval(() => {
+      if (!listeningEnabled || !assistantSpeaking || !analyser) {
+        speechStartedAt = 0;
+        lastLoudAt = 0;
+        return;
+      }
+
+      analyser.getByteTimeDomainData(micData);
+
+      let sum = 0;
+
+      for (const sample of micData) {
+        const normalized = (sample - 128) / 128;
+        sum += normalized * normalized;
+      }
+
+      const rms = Math.sqrt(sum / micData.length);
+      const now = Date.now();
+
+      if (rms > INTERRUPTION_THRESHOLD) {
+        if (!speechStartedAt) speechStartedAt = now;
+        lastLoudAt = now;
+
+        
+        if (
+          now - speechStartedAt >= INTERRUPTION_HOLD_MS &&
+          !interruptionTriggered
+        ) {
+          interruptionTriggered = true;
+
+  // Invalidate the current response so queued audio cannot play.
+          requestNumber++;
+
+  // Cancel the ongoing streaming request.
+          if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+          }
+
+  // Stop the audio currently playing.
+          if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+            currentAudio = null;
+          }
+
+          assistantSpeaking = false;
+          busy = false;
+
+          setStatus("Interruption detected. Keep speaking...");
+        }
+
+      } else if (now - lastLoudAt > 350) {
+        speechStartedAt = 0;
+      }
+    }, 50);
+  } catch (error) {
+    console.error("Microphone monitor error:", error);
+    setStatus("Could not access microphone. Check Chrome permissions.");
+  }
+}
+
+
+  function startRecognition() {
+    if (!listeningEnabled) return;
+
+    try {
+      recognition.start();
+    } catch (error) {
+      // Chrome may already be starting recognition.
+    }
+  }
+
+  
+  startButton.onclick = async () => {
+    listeningEnabled = true;
+    startButton.disabled = true;
+
+    await startMicMonitor();
+
+    setStatus("Listening... speak now.");
+    startRecognition();
+  };
+
+
+  stopButton.onclick = () => {
+    listeningEnabled = false;
+    busy = false;
+    assistantSpeaking = false;
+    requestNumber++;
+
+    clearTimeout(restartTimer);
+
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      currentAudio = null;
+    }
+
+    try {
+      recognition.stop();
+    } catch (error) {
+      // Recognition may already be stopped.
+    }
+
+    startButton.disabled = false;
+    setStatus("Conversation stopped.");
+  };
+
+  
+  // Listen for the user's speech even while Adam is talking.
+  recognition.onresult = (event) => {
+    let interim = "";
+    let finalText = "";
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const text = event.results[i][0].transcript;
+
+      if (event.results[i].isFinal) {
+        finalText += text;
+      } else {
+        interim += text;
+      }
+    }
+
+    if (interim.trim()) {
+      if (assistantSpeaking || interruptionTriggered) {
+        setStatus("Listening for interruption: " + interim);
+      } else if (!busy) {
+        setStatus("Hearing: " + interim);
+      }
+    }
+
+    const message = finalText.trim();
+    if (!message) return;
+
+    // If the user interrupted Adam, cancel his current response.
+    if (interruptionTriggered || assistantSpeaking) {
+      interruptionTriggered = false;
+      interruptAdam(message);
+      return;
+    }
+
+    // Send a normal message only when no request is running.
+    if (!busy) {
+      interruptionTriggered = false;
+      askAdam(message);
+    }
+  };
+
+
+  recognition.onerror = (event) => {
+    if (event.error === "not-allowed") {
+      listeningEnabled = false;
+      startButton.disabled = false;
+      setStatus("Allow microphone access in Chrome, then try again.");
+    } else if (
+      event.error !== "no-speech" &&
+      event.error !== "aborted"
+    ) {
+      setStatus("Speech recognition: " + event.error);
+    }
+  };
+
+  // Chrome may end speech recognition automatically.
+  // Restart it even while Adam is speaking.
+  recognition.onend = () => {
+    clearTimeout(restartTimer);
+
+    if (listeningEnabled) {
+      restartTimer = setTimeout(startRecognition, 250);
+    }
+  };
+
+  function interruptAdam(message) {
+    // Invalidate any chunks from Adam's previous response.
+    requestNumber++;
+
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      currentAudio = null;
+    }
+
+    assistantSpeaking = false;
+    busy = false;
+
+    setStatus("You interrupted Adam. Preparing response...");
+    askAdam(message);
+  }
+
+
+async function askAdam(message) {
+    busy = true;
+
+    const thisRequest = ++requestNumber;
+    const controller = new AbortController();
+    currentAbortController = controller;
+
+    appendMessage("You", message);
+    setStatus("Adam is thinking...");
+
+    try {
+        // Step 1: Select a carrier before Adam's first voice response.
+        if (!carrierSelectionAttempted) {
+            carrierSelectionAttempted = true;
+
+            try {
+                const selectionResponse = await fetch(
+                    `/next-carrier?conversation_id=${encodeURIComponent(conversationId)}`
+                );
+
+                if (selectionResponse.ok) {
+                    const selection = await selectionResponse.json();
+                    console.log("Carrier selection:", selection);
+                } else {
+                    console.warn(
+                        "Carrier selection failed:",
+                        selectionResponse.status
+                    );
+                }
+            } catch (selectionError) {
+                console.warn(
+                    "Carrier selection unavailable:",
+                    selectionError
+                );
+            }
+        }
+
+        // Step 2: Start Adam's streaming voice response.
+        const response = await fetch("/stream-voice", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                message: message,
+                conversation_id: conversationId
+            }),
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                "Server returned HTTP " + response.status
+            );
+        }
+
+        if (!response.body) {
+            throw new Error(
+                "Streaming is not supported by this response."
+            );
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let pending = "";
+        let audioQueue = Promise.resolve();
+
+        // Step 3: Play each audio chunk from Adam.
+        async function playAudio(base64Audio) {
+            if (thisRequest !== requestNumber) return;
+
+            const binary = atob(base64Audio);
+            const bytes = new Uint8Array(binary.length);
+
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+
+            const blob = new Blob(
+                [bytes],
+                { type: "audio/mpeg" }
+            );
+
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+
+            currentAudio = audio;
+            assistantSpeaking = true;
+
+            setStatus("Adam is speaking...");
+
+            try {
+                await new Promise((resolve, reject) => {
+                    audio.onended = resolve;
+                    audio.onpause = resolve;
+
+                    audio.onerror = () => {
+                        reject(
+                            new Error("Could not play Adam's audio.")
+                        );
+                    };
+
+                    audio.play().catch(reject);
+                });
+            } finally {
+                URL.revokeObjectURL(url);
+
+                if (currentAudio === audio) {
+                    currentAudio = null;
+                }
+            }
+        }
+
+        // Step 4: Read the server's streaming events.
+        while (true) {
+            const { value, done } = await reader.read();
+
+            if (thisRequest !== requestNumber) {
+                await reader.cancel().catch(() => {});
+                break;
+            }
+
+            if (done) break;
+
+            pending += decoder.decode(value, { stream: true });
+
+            const events = pending.split("\n\n");
+            pending = events.pop() || "";
+
+            for (const rawEvent of events) {
+                const line = rawEvent
+                    .split("\n")
+                    .find(line => line.startsWith("data: "));
+
+                if (!line) continue;
+
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === "audio") {
+                    if (data.text) {
+                        appendMessage("Adam", data.text);
+                    }
+
+                    audioQueue = audioQueue.then(
+                        () => playAudio(data.audio)
+                    );
+                } else if (data.type === "error") {
+                    throw new Error(data.message);
+                }
+            }
+        }
+
+        // Step 5: Wait for queued audio to finish.
+        await audioQueue;
+
+        if (thisRequest === requestNumber) {
+            assistantSpeaking = false;
+            busy = false;
+            currentAbortController = null;
+
+            setStatus(
+                "Listening... you can speak whenever you're ready."
+            );
+
+            if (!listeningEnabled) {
+                startButton.disabled = false;
+            }
+        }
+
+    } catch (error) {
+        if (thisRequest === requestNumber) {
+            assistantSpeaking = false;
+            busy = false;
+            currentAbortController = null;
+
+            if (error.name === "AbortError") {
+                setStatus("Response cancelled.");
+            } else {
+                setStatus("Error: " + error.message);
+                console.error(error);
+            }
+
+            if (!listeningEnabled) {
+                startButton.disabled = false;
+            }
+        }
+    }
+}
+  
+</script>
+
+</body>
+</html>

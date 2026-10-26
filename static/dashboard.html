@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TruckDispatchAgent — Operator Dashboard</title>
+  <style>
+    body {
+      font-family: Consolas, "Courier New", monospace;
+      max-width: 1000px;
+      margin: 30px auto;
+      padding: 20px;
+      background: #0d1321;
+      color: #e6edf3;
+    }
+    h1 { margin-bottom: 4px; }
+    input, button {
+      padding: 8px; margin: 4px 6px 4px 0;
+      border-radius: 6px; border: 1px solid #30363d;
+      background: #161b22; color: #e6edf3; font: inherit;
+    }
+    button { cursor: pointer; background: #1f6feb; color: white; }
+    table { border-collapse: collapse; width: 100%; margin-top: 14px; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #21262d; }
+    th { color: #9198a1; font-weight: normal; }
+    td.priority-high { color: #ff7b72; }
+    td.priority-medium { color: #e3b341; }
+    tr.reviewed td { color: #58a6ff; }
+    #metrics { white-space: pre; background: #161b22; padding: 12px; border-radius: 8px; }
+    .muted { color: #8b949e; }
+  </style>
+</head>
+<body>
+  <h1>Operator Dashboard</h1>
+  <p class="muted">Read-only review and search. No actions here place calls.</p>
+
+  <div>
+    <input id="token" type="password" placeholder="Admin token (kept in this tab only)" size="36">
+    <input id="search" placeholder="Search company name or USDOT..." size="36">
+    <button id="go">Search</button>
+    <button id="refresh">Refresh metrics</button>
+  </div>
+
+  <p id="metrics" class="muted">Loading metrics...</p>
+
+  <table id="results">
+    <thead>
+      <tr>
+        <th>USDOT</th><th>Company</th><th>Phone</th><th>Trucks</th>
+        <th>Score</th><th>Priority</th><th>Qualified</th>
+        <th>Latest review</th><th>Callback</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+  const tbody = document.querySelector("#results tbody");
+  const metricsEl = document.getElementById("metrics");
+
+  function authHeaders() {
+    const token = sessionStorage.getItem("admin_token") || "";
+    return token ? {"Authorization": "Bearer " + token} : {};
+  }
+
+  function esc(value) {
+    if (value === null || value === undefined) return "";
+    return String(value).replace(/[&<>"]/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"
+    }[c]));
+  }
+
+  async function loadMetrics() {
+    try {
+      const res = await fetch("/metrics", {headers: authHeaders()});
+      if (res.status === 401 || res.status === 503) {
+        metricsEl.textContent =
+          "Locked: enter the admin token above to load metrics.";
+        return;
+      }
+      const data = await res.json();
+      metricsEl.textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+      metricsEl.textContent = "Could not load metrics: " + error.message;
+    }
+  }
+
+  async function loadResults(query = "") {
+    try {
+      const res = await fetch(
+        "/carriers/search?q=" + encodeURIComponent(query) + "&limit=50",
+        {headers: authHeaders()}
+      );
+
+      if (res.status === 401 || res.status === 503) {
+        const detail = (await res.json().catch(() => ({}))).detail || "";
+        tbody.innerHTML = "";
+        const row = tbody.insertRow();
+        row.innerHTML = '<td colspan="9" class="muted">Access denied: ' +
+          esc(detail) + "</td>";
+        return;
+      }
+
+      const data = await res.json();
+      tbody.innerHTML = "";
+
+      if (!data.results || data.results.length === 0) {
+        const row = tbody.insertRow();
+        row.innerHTML = '<td colspan="9" class="muted">No results.</td>';
+        return;
+      }
+
+      for (const carrier of data.results) {
+        const row = tbody.insertRow();
+        if (carrier.latest_review_status) row.className = "reviewed";
+        row.innerHTML = [
+          esc(carrier.usdot_number),
+          esc(carrier.company_name),
+          esc(carrier.phone),
+          esc(carrier.vehicle_count),
+          esc(carrier.lead_score),
+          `<td class="priority-${esc(carrier.priority)}">${esc(carrier.priority)}</td>`,
+          esc(carrier.basic_qualification_passed),
+          esc(carrier.latest_review_status),
+          esc(carrier.callback_scheduled_for),
+        ].join("");
+      }
+    } catch (error) {
+      tbody.innerHTML = "";
+      const row = tbody.insertRow();
+      row.innerHTML = '<td colspan="9" class="muted">Search failed: ' +
+        esc(error.message) + "</td>";
+    }
+  }
+
+  document.getElementById("go").onclick = () => {
+    sessionStorage.setItem(
+      "admin_token",
+      document.getElementById("token").value.trim()
+    );
+    loadMetrics();
+    loadResults(document.getElementById("search").value);
+  };
+
+  document.getElementById("refresh").onclick = () => {
+    sessionStorage.setItem(
+      "admin_token",
+      document.getElementById("token").value.trim()
+    );
+    loadMetrics();
+  };
+
+  loadMetrics();
+  loadResults();
+</script>
+</body>
+</html>
