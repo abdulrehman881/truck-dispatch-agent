@@ -92,8 +92,35 @@ python -m pytest tests -q
 | `POST /tasks/reminders` | Store a reminder (`title`, `due_at`) (admin) |
 | `POST /tasks/{id}/done` | Mark a task done (admin) |
 | `POST /tasks/{id}/cancel` | Cancel a pending task (admin) |
+| `GET /call` | Simulated carrier phone call console (public UI) |
+| `POST /call-sessions` | Start or resume a call session (admin) |
+| `POST /call-sessions/{id}/messages` | Post a driver message & get agent reply (admin) |
+| `GET /call-sessions/{id}` | Get call session detail and transcript (admin) |
+| `POST /call-sessions/{id}/end` | End a call session & derive summary (admin) |
+| `GET /call-sessions` | List recent call sessions (admin) |
 
-#### Scheduled tasks & reminders
+#### Web phone call center (`/call`)
+
+Because there is no outbound telephony provider or live dialing, `GET /call`
+provides a simulated call console where you can "answer" carrier calls.
+
+- **Identity & resumption**: Callers are identified by USDOT (`usdot:<digits>`),
+  phone (`phone:<last10>`), company (`name:<normalized company>`), or name
+  (`person:<normalized name>`). When a caller calls back, their conversation
+  history and derived summary are reloaded so the agent welcomes them back
+  and resumes where they left off.
+- **Strictly read-only agent**: The agent discusses loads, lanes, and equipment
+  in a natural phone style (`openai/gpt-oss-20b`, temp 0.4, ≤250 tokens). If the
+  driver orders the agent to change, update, delete, or modify any database
+  record (rates, phone numbers, lead statuses, etc.), a deterministic regex
+  refusal catches it **before** any model call or database write, flags the
+  message, and replies with `CALL_REFUSAL_REPLY`.
+- **Database tables**: `public.call_sessions` and `public.call_messages`,
+  created automatically at startup, with cascades and indexes. Recent
+  callers are listed for quick call-backs.
+- **Speech**: Optional browser Web Speech API (speech synthesis to hear the
+  agent, speech recognition for voice input in Chrome).
+
 
 Every follow-up is stored in the `public.scheduled_tasks` table, so
 schedules survive server restarts. The table is created automatically

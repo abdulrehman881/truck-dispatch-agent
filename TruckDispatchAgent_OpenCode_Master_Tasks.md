@@ -300,24 +300,22 @@ invalid_number, failed — covered by tests.
 > new chip and download button. No production rows were written; no
 > call was placed. Full suite **136 passed / 0 failed / 0 skipped**.
 >
-> **Persistent task queue record (2026-10-26):** added
-> `public.scheduled_tasks` (auto-created at startup, indexed on
-> `status, due_at`) plus a background worker that flips `pending` →
-> `due` every `TASK_SCHEDULER_POLL_SECONDS` (default 30) and logs
-> `task_due`. Callback reviews now create their own task at
-> `follow_up_at` (rescheduling cancels the old one); existing callbacks
-> are backfilled once. Assistant commands: `remind me to <thing> in 2
-> hours`, `my tasks` / `what do I need to do`, `mark task N done`;
-> HTTP: `GET /tasks`, `POST /tasks/reminders`,
-> `POST /tasks/{id}/done|cancel` (admin). The pipeline page shows a
-> Scheduled tasks & reminders card with Done/Cancel and a 30 s refresh.
-> **The worker never dials** — a due task is an operator reminder while
-> calling is offline. Verified live: reminder #1 created via chat
-> (pending), worker flipped it to due with `notified_at`, marked done;
-> reminder #2 created and completed through the browser card (open
-> tasks back to 0). Only the new task table was written; lead/review
-> data untouched. Full suite **164 passed / 0 failed / 0 skipped**
-> (28 new task tests).
+> **Web phone call center record (2026-10-27):** added `static/call.html`
+> ("incoming call" operator console at `/call`), plus backend call sessions
+> (`public.call_sessions`, `public.call_messages`). Callers are identified
+> by USDOT, phone, company, or person name; repeat visitors automatically
+> resume past conversations and transcripts. **Strictly read-only agent**:
+> discusses loads/lanes (`openai/gpt-oss-20b`, temp 0.4, ≤250 tokens), but
+> any driver order to change, update, delete, or modify database records
+> is caught by deterministic regex refusal **before** any model or DB work,
+> flagged as `flagged=TRUE`, and refused with `CALL_REFUSAL_REPLY`.
+> Tested: 24 call-center tests (caller key normalization, change-intent regex,
+> refusal bypassing model/DB, session resumption, message storage, end call
+> summary, 401/404/409/422 responses). Full suite **188 passed / 1 skipped /
+> 0 failed** (70.4 s). Live verified: incoming call started, conversation
+> stored, change-request refused and flagged, re-calling with same identity
+> successfully resumed past transcript and summary. Carrier lead/review data
+> remained untouched.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,

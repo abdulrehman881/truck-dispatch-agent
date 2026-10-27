@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📞 Dispatch Agent — Call Console</title>
+<style>
+  :root {
+    --bg: #0f1220; --card: #171b2e; --line: #2a3050;
+    --text: #e8ebf5; --muted: #8b93ad; --accent: #6ea8ff;
+    --caller: #26314d; --agent: #1e3527; --warn: #ff9f43;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+    display: flex; justify-content: center; padding: 24px 12px;
+  }
+  .wrap { width: 100%; max-width: 980px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px; margin-bottom: 18px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 150px; }
+  .field span { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
+  input, select {
+    background: #0d1019; border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 9px 11px; font: inherit; width: 100%;
+  }
+  input:focus, select:focus { outline: 1px solid var(--accent); }
+  button {
+    background: var(--accent); color: #0c1220; border: 0; border-radius: 8px;
+    padding: 10px 18px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: #2a3050; color: var(--text); font-weight: 500; }
+  button.danger { background: #b3394d; color: #fff; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+  .read-only {
+    display: inline-block; border: 1px solid var(--warn); color: var(--warn);
+    border-radius: 999px; padding: 2px 10px; font-size: .75rem; font-weight: 700;
+    letter-spacing: .05em; text-transform: uppercase;
+  }
+  /* Phone screen */
+  #phoneCard { display: flex; gap: 16px; flex-wrap: wrap; }
+  #screen {
+    flex: 1 1 420px; border: 1px solid var(--line); border-radius: 18px;
+    background: #05070d; padding: 16px; display: flex; flex-direction: column;
+    min-height: 480px;
+  }
+  .head {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px;
+  }
+  .caller-id { font-size: 1.05rem; font-weight: 700; }
+  #timer { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #transcript { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .bubble {
+    max-width: 82%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .bubble.agent { align-self: flex-start; background: var(--agent); }
+  .bubble.me { align-self: flex-end; background: var(--caller); }
+  .bubble.me.flagged { box-shadow: 0 0 0 1px var(--warn); }
+  .bubble .who { display: block; font-size: .7rem; color: var(--muted); margin-bottom: 2px; }
+  .divider {
+    text-align: center; color: var(--warn); font-size: .78rem; font-weight: 700;
+    border-top: 1px dashed var(--warn); border-bottom: 1px dashed var(--warn);
+    padding: 6px 0; margin: 6px 0;
+  }
+  .controls { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+  .controls input { flex: 1; }
+  .toggle { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: .82rem; }
+  /* Recent callers */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; }
+  .key-pill { color: var(--muted); font-size: .78rem; }
+  .status-pill {
+    font-size: .72rem; text-transform: uppercase; padding: 2px 8px;
+    border-radius: 999px; font-weight: 700; display: inline-block;
+  }
+  .status-pill.open { background: #1e3527; color: #7ef0a3; }
+  .status-pill.ended { background: #232c42; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📞 Agent call console <span class="read-only">read-only agent</span></h1>
+  <p class="sub">Simulates an incoming carrier call. The agent talks about loads,
+  remembers past conversations, and <strong>never</strong> changes any database record.</p>
+
+  <!-- Caller identity -->
+  <div class="card" id="setupCard">
+    <h2 style="font-size:1.05rem;margin:0 0 10px">Caller identity</h2>
+    <div class="row">
+      <label class="field"><span>USDOT number</span>
+        <input id="fUsdot" placeholder="e.g. 1234567"></label>
+      <label class="field"><span>Phone</span>
+        <input id="fPhone" placeholder="e.g. (312) 555-0142"></label>
+      <label class="field"><span>Company name</span>
+        <input id="fCompany" placeholder="e.g. MLA Logistics Corp"></label>
+      <label class="field"><span>Person name</span>
+        <input id="fPerson" placeholder="e.g. Rob Miller"></label>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="answerBtn">📲 Answer call</button>
+      <button id="endBtn" class="danger hidden">📴 End call</button>
+      <label class="toggle"><input type="checkbox" id="voiceOut"> Speak agent replies</label>
+      <label class="toggle"><input type="checkbox" id="micOn" disabled> Listen to my mic (Chrome)</label>
+    </div>
+    <p class="muted" id="setupMsg" style="margin:12px 0 0">
+      Fill at least one field. Repeat visitors resume automatically.</p>
+  </div>
+
+  <!-- Phone screen -->
+  <div class="card">
+    <div id="phoneCard">
+      <div id="screen">
+        <div class="head">
+          <div>
+            <div class="caller-id" id="callerName">—</div>
+            <div class="key-pill" id="callerKey"></div>
+          </div>
+          <div id="timer">00:00</div>
+        </div>
+        <div id="transcript"
+             class="muted" style="align-items:center;justify-content:center">
+          No active call.
+        </div>
+        <form class="controls hidden" id="msgForm">
+          <input id="msgInput" maxlength="1000"
+                 placeholder="Speak / type as the driver… e.g. I have a 53ft reefer, loads Texas to midwest">
+          <button type="submit">Send</button>
+        </form>
+      </div>
+
+      <!-- Recent callers -->
+      <div style="flex:1 1 300px;min-width:280px">
+        <h2 style="font-size:1rem;margin:0 0 8px">Recent callers</h2>
+        <table>
+          <thead><tr><th>Caller</th><th>Status</th><th></th></tr></thead>
+          <tbody id="recentRows">
+            <tr><td colspan="3" class="muted">Need token.</td></tr>
+          </tbody>
+        </table>
+        <p class="muted" style="font-size:.8rem;margin-top:8px">
+          Click a row to prefill that identity for a call back.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+})[c]);
+
+let token = sessionStorage.getItem("admin_token") || "";
+const authHeaders = () => ({
+  ...(token ? { Authorization: "Bearer " + token } : {}),
+  "Content-Type": "application/json",
+});
+
+let sessionId = null;
+let timerId = null;
+let recognition = null;
+
+function tokenMissing() {
+  token = prompt("Admin token (kept in this tab only):") || "";
+  if (token) {
+    sessionStorage.setItem("admin_token", token);
+    return true;
+  }
+  return false;
+}
+
+async function openCall(message, isRecognized) {
+  if (!token && !tokenMissing()) return;
+  showStatus("Dialing…");
+  const res = await fetch("/call-sessions", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      usdot_number: $("fUsdot").value.trim() || null,
+      phone: $("fPhone").value.trim() || null,
+      company_name: $("fCompany").value.trim() || null,
+      caller_name: $("fPerson").value.trim() || null,
+    }),
+  });
+  if (res.status === 401) {
+    token = ""; sessionStorage.removeItem("admin_token");
+    showStatus("🔒 Wrong or missing token."); return;
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    showStatus("⚠ " + (body.detail || res.status)); return;
+  }
+  const body = await res.json();
+  sessionId = body.session_id;
+
+  $("setupCard").classList.add("hidden");
+  $("msgForm").classList.remove("hidden");
+  $("endBtn").classList.remove("hidden");
+  $("micOn").disabled = false;
+
+  $("callerName").textContent =
+    body.display_name || body.company_name ||
+    body.usdot_number || body.phone || "Unknown caller";
+  $("callerKey").textContent = body.caller_key;
+
+  clearTranscript();
+  for (const item of body.transcript || []) {
+    addBubble(item.role === "assistant" ? "agent" : "me",
+              item.content, item.flagged);
+  }
+  if (body.resumed) addDivider("Previous conversation — resuming where you left off");
+  addBubble("agent", body.greeting, false);
+  speak(body.greeting);
+
+  startTimer();
+  showStatus("");
+  $("msgInput").focus();
+}
+
+function showStatus(text) { $("setupMsg").textContent = text; }
+
+function clearTranscript() {
+  $("transcript").innerHTML = "";
+  $("transcript").classList.remove("muted");
+  $("transcript").style.alignItems = "";
+  $("transcript").style.justifyContent = "";
+}
+
+function addBubble(role, text, flagged) {
+  const div = document.createElement("div");
+  div.className = "bubble " + (role === "agent" ? "agent" : "me") +
+    (flagged ? " flagged" : "");
+  div.innerHTML = '<span class="who">' +
+    (role === "agent" ? "AGENT (read-only)" : "DRIVER") + "</span>" +
+    esc(text);
+  $("transcript").appendChild(div);
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+
+function addDivider(text) {
+  const div = document.createElement("div");
+  div.className = "divider";
+  div.textContent = text;
+  $("transcript").appendChild(div);
+}
+
+function startTimer() {
+  stopTimer();
+  let seconds = 0;
+  $("timer").textContent = "00:00";
+  timerId = setInterval(() => {
+    seconds++;
+    $("timer").textContent =
+      String(Math.floor(seconds / 60)).padStart(2, "0") + ":" +
+      String(seconds % 60).padStart(2, "0");
+  }, 1000);
+}
+
+function stopTimer() {
+  if (timerId) clearInterval(timerId);
+  timerId = null;
+}
+
+function speak(text) {
+  if (!$("voiceOut").checked || !window.speechSynthesis) return;
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 1.02;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utter);
+}
+
+$("answerBtn").onclick = openCall;
+
+$("msgForm").onsubmit = async (event) => {
+  event.preventDefault();
+  const text = $("msgInput").value.trim();
+  if (!text || !sessionId) return;
+  $("msgInput").value = "";
+  addBubble("me", text, false);
+
+  const res = await fetch("/call-sessions/" + sessionId + "/messages", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ message: text }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    $("setupMsg").textContent = "⚠ " + (body.detail || res.status);
+    return;
+  }
+  const body = await res.json();
+  if (body.flagged) {
+    addDivider("Data-change request refused — dispatcher only");
+  }
+  addBubble("agent", body.reply, false);
+  speak(body.reply);
+};
+
+$("endBtn").onclick = async () => {
+  if (!sessionId) return;
+  await fetch("/call-sessions/" + sessionId + "/end", {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  logEvent("Call ended. Summary stored.");
+  sessionId = null;
+  stopTimer();
+  $("msgForm").classList.add("hidden");
+  $("endBtn").classList.add("hidden");
+  $("setupCard").classList.remove("hidden");
+  $("micOn").checked = false;
+  stopMic();
+  window.speechSynthesis && window.speechSynthesis.cancel();
+  showStatus("Call ended. The next call with the same identity resumes.");
+  loadRecent();
+};
+
+$("micOn").onchange = (event) => {
+  event.target.checked ? startMic() : stopMic();
+};
+
+function startMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    $("micOn").checked = false;
+    $("micOn").disabled = true;
+    showStatus("This browser doesn't support speech recognition — type instead.");
+    return;
+  }
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+  recognition.onresult = (event) => {
+    const text = event.results[event.results.length - 1][0].transcript.trim();
+    if (text) { $("msgInput").value = text; $("msgForm").requestSubmit(); }
+  };
+  recognition.onerror = () => { $("micOn").checked = false; };
+  try { recognition.start(); } catch { /* already started */ }
+}
+
+function stopMic() {
+  if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
+}
+
+function logEvent(text) {
+  const div = document.createElement("div");
+  div.className = "divider";
+  div.style.borderColor = "var(--line)";
+  div.style.color = "var(--muted)";
+  div.textContent = text;
+  $("transcript").appendChild(div);
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+
+async function loadRecent() {
+  if (!token) return;
+  try {
+    const res = await fetch("/call-sessions?limit=20", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (res.status === 401) return;
+    const body = await res.json();
+    const rows = $("recentRows");
+    rows.innerHTML = "";
+    const sessions = body.sessions || [];
+    if (!sessions.length) {
+      rows.innerHTML = '<tr><td colspan="3" class="muted">No calls yet.</td></tr>';
+      return;
+    }
+    for (const s of sessions) {
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.title = "Call this identity back";
+      tr.innerHTML =
+        "<td>" + esc(s.display_name || s.company_name ||
+          s.usdot_number || s.phone || "Unknown") +
+        "<br><span class='key-pill'>" + esc(s.caller_key) +
+        "</span></td>" +
+        '<td><span class="status-pill ' + esc(s.status) + '">' +
+        esc(s.status) + "</span></td>" +
+        "<td class='muted'>" + esc((s.started_at || "").replace("T", " ").slice(0, 16)) +
+        "</td>";
+      tr.onclick = () => {
+        $("fUsdot").value = s.usdot_number || "";
+        $("fPhone").value = s.phone || "";
+        $("fCompany").value = s.company_name || "";
+        $("fPerson").value = s.display_name || "";
+        showStatus("Identity prefilled — press Answer to call back.");
+        $("fUsdot").focus();
+      };
+      rows.appendChild(tr);
+    }
+  } catch { /* keep previous view */ }
+}
+
+loadRecent();
+</script>
+</body>
+</html>

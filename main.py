@@ -1370,6 +1370,684 @@ def _set_task_status(task_id: int, status: str):
 
 
 # --------------------------------------------------
+# Web phone: simulated carrier calls with remembered history
+# --------------------------------------------------
+# There is no telephony provider yet, so calls happen on a browser page
+# connected to FastAPI. Each caller is identified by USDOT, phone,
+# company, or person name; conversations are stored with that key and
+# resumed on the next call. The agent is strictly read-only: it can
+# discuss loads but never changes database records.
+
+CALL_TABLES_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS public.call_sessions (
+        id TEXT PRIMARY KEY,
+        caller_key TEXT NOT NULL,
+        display_name TEXT,
+        company_name TEXT,
+        usdot_number TEXT,
+        phone TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_activity_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ended_at TIMESTAMPTZ,
+        summary TEXT,
+        resumed_from TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS call_sessions_caller_key_idx
+    ON public.call_sessions (caller_key, started_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS public.call_messages (
+        id BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES public.call_sessions(id)
+            ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        flagged BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS call_messages_session_idx
+    ON public.call_messages (session_id, id)
+    """,
+)
+
+CALL_SESSION_COLUMNS = (
+    "id, caller_key, display_name, company_name, usdot_number, phone, "
+    "status, started_at, last_activity_at, ended_at, summary, resumed_from"
+)
+
+CALL_HISTORY_LIMIT = 20
+CALL_CONTEXT_MESSAGES = 12
+
+CALL_CHANGE_PATTERNS = (
+    re.compile(
+        r"\b(change|update|edit|modify|set|correct|fix)\b.{0,40}"
+        r"\b(rate|price|pay|phone|number|email|address|mc|dot|usdot|"
+        r"status|record|database|profile|details|company|name|"
+        r"appointment|pickup|delivery|load|equipment)\b"
+    ),
+    re.compile(r"\b(delete|remove|erase|drop|wipe|purge)\b"),
+    re.compile(
+        r"\b(cancel|reschedule)\b.{0,30}"
+        r"\b(load|booking|appointment|pickup|delivery|record|callback)\b"
+    ),
+    re.compile(
+        r"\b(add|put|insert|save)\b.{0,30}\b(me|us|this)\b.{0,30}"
+        r"\b(database|system|record)\b"
+    ),
+    re.compile(
+        r"\b(mark|set)\b.{0,30}"
+        r"\b(interested|not interested|do not call|dnc)\b"
+    ),
+)
+
+CALL_REFUSAL_REPLY = (
+    "I can't change anything in our records on this call — I'm read-only. "
+    "I've flagged that request for the dispatcher, who can update it. "
+    "Meanwhile, I can talk about your lane, equipment, or availability."
+)
+
+
+def ensure_call_tables():
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            for statement in CALL_TABLES_DDL:
+                cur.execute(statement)
+
+
+def _digits(value) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _normalize_name(value) -> str:
+    text = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())
+    return " ".join(text.split())
+
+
+def build_caller_key(usdot="", phone="", company="", person="") -> str:
+    """Pick one stable identity for a caller, in priority order."""
+    usdot = _digits(usdot)
+    phone = _digits(phone)
+    if phone:
+        phone = phone[-10:]
+
+    if usdot:
+        return f"usdot:{usdot}"
+    if phone:
+        return f"phone:{phone}"
+    if _normalize_name(company):
+        return f"name:{_normalize_name(company)}"
+    if _normalize_name(person):
+        return f"person:{_normalize_name(person)}"
+    return ""
+
+
+def call_change_intent(message: str) -> str | None:
+    """Return a matched fragment when the caller asks to modify records."""
+    lowered = (message or "").lower()
+    for pattern in CALL_CHANGE_PATTERNS:
+        match = pattern.search(lowered)
+        if match:
+            return match.group(0)[:80]
+    return None
+
+
+def derive_call_summary(messages) -> str:
+    """Deterministic short summary from the caller's own words."""
+    parts = []
+    for item in messages:
+        if item.get("role") != "user":
+            continue
+        text = " ".join(str(item.get("content", "")).split())
+        if text:
+            parts.append(text[:160])
+    summary = " | ".join(parts[-4:])
+    return summary[:500]
+
+
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+def _call_session_to_dict(row) -> dict:
+    return {
+        "id": row[0],
+        "caller_key": row[1],
+        "display_name": row[2],
+        "company_name": row[3],
+        "usdot_number": row[4],
+        "phone": row[5],
+        "status": row[6],
+        "started_at": _iso(row[7]),
+        "last_activity_at": _iso(row[8]),
+        "ended_at": _iso(row[9]),
+        "summary": row[10],
+        "resumed_from": row[11],
+    }
+
+
+def _load_call_transcript(cur, session_id, limit=CALL_HISTORY_LIMIT):
+    cur.execute(
+        """
+        SELECT role, content, flagged, created_at
+        FROM public.call_messages
+        WHERE session_id = %s
+        ORDER BY id DESC
+        LIMIT %s
+        """,
+        (session_id, int(limit)),
+    )
+    rows = cur.fetchall()
+    rows = list(reversed(rows))
+    return [
+        {
+            "role": row[0],
+            "content": row[1],
+            "flagged": bool(row[2]),
+            "created_at": _iso(row[3]),
+        }
+        for row in rows
+    ]
+
+
+def _find_previous_call(cur, usdot, phone, company, person):
+    clauses = []
+    params = []
+
+    if usdot:
+        clauses.append("usdot_number = %s")
+        params.append(usdot)
+    if phone:
+        clauses.append("right(regexp_replace(phone, '\\D', '', 'g'), 10) = %s")
+        params.append(phone)
+    if _normalize_name(company):
+        clauses.append(
+            "lower(regexp_replace(company_name, '[^a-zA-Z0-9]+', ' ', 'g')) "
+            "= %s"
+        )
+        params.append(_normalize_name(company))
+    if _normalize_name(person):
+        clauses.append(
+            "lower(regexp_replace(display_name, '[^a-zA-Z0-9]+', ' ', 'g')) "
+            "= %s"
+        )
+        params.append(_normalize_name(person))
+
+    if not clauses:
+        return None
+
+    cur.execute(
+        f"""
+        SELECT {CALL_SESSION_COLUMNS}
+        FROM public.call_sessions
+        WHERE {' OR '.join(clauses)}
+        ORDER BY started_at DESC
+        LIMIT 1
+        """,
+        tuple(params),
+    )
+    row = cur.fetchone()
+    return _call_session_to_dict(row) if row else None
+
+
+def _greeting_for(session, resumed, transcript) -> str:
+    name = (session.get("display_name") or "").strip()
+    name_part = f" {name}" if name else ""
+
+    if resumed:
+        summary = (session.get("summary") or "").strip()
+        if not summary:
+            summary = derive_call_summary(transcript)
+        if summary:
+            return (
+                f"Welcome back{name_part}. Last time we were talking about: "
+                f"{summary}. Want to pick up there, or is something new?"
+            )
+        return (
+            f"Welcome back{name_part}. I have your earlier call on file. "
+            "What would you like to discuss today?"
+        )
+
+    company = (session.get("company_name") or "").strip()
+    company_part = f" with {company}" if company else ""
+    return (
+        f"Thanks for calling{company_part}. This is Adam, the dispatch "
+        "assistant. I can talk about loads, lanes, equipment, and "
+        "availability. I can't change any records, but I can note your "
+        "details for the dispatcher. What lane are you running?"
+    )
+
+
+def _call_system_prompt(session) -> str:
+    name = session.get("display_name") or "unknown caller"
+    company = session.get("company_name") or "unknown company"
+    usdot = session.get("usdot_number") or "unknown"
+    summary = session.get("summary") or "no previous call"
+
+    return (
+        "You are Adam, a truck-dispatch assistant speaking on a phone call "
+        "with a carrier or driver.\n"
+        "You may discuss loads, lanes, equipment, availability, and next "
+        "steps in a natural, brief phone style (1-3 sentences).\n"
+        "STRICT RULES:\n"
+        "- You CANNOT change, create, cancel, or delete anything in the "
+        "database. If asked, say you are read-only and the dispatcher will "
+        "handle it. Never claim a record was changed.\n"
+        "- Never invent load availability, rates, broker names, or booking "
+        "confirmations. If unknown, say a dispatcher will confirm.\n"
+        "- Never take payment or card details.\n"
+        "- Stay on trucking/dispatch topics.\n"
+        f"Caller: {name}; company: {company}; USDOT: {usdot}.\n"
+        f"Previous conversation summary: {summary}."
+    )
+
+
+def _call_agent_reply(session, transcript, message) -> str:
+    """Ask the model for one phone-style reply. No tools are exposed."""
+    messages = [{"role": "system", "content": _call_system_prompt(session)}]
+
+    for item in transcript[-CALL_CONTEXT_MESSAGES:]:
+        if item.get("role") in ("user", "assistant"):
+            messages.append(
+                {"role": item["role"], "content": item["content"]}
+            )
+
+    messages.append({"role": "user", "content": message})
+
+    try:
+        completion = groq_client.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            temperature=0.4,
+            max_completion_tokens=250,
+            messages=messages,
+        )
+        reply = (completion.choices[0].message.content or "").strip()
+    except Exception as error:
+        log_event(
+            "call_agent_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+        reply = ""
+
+    if not reply:
+        reply = (
+            "I'm having trouble hearing that clearly. I can note your "
+            "details for the dispatcher, but I can't change any records. "
+            "Could you repeat your lane and equipment?"
+        )
+
+    return reply[:1500]
+
+
+def begin_call(usdot="", phone="", company="", person="") -> dict:
+    """Start or resume a call, returning the transcript and greeting."""
+    usdot = _digits(usdot)[:30]
+    phone = _digits(phone)[-10:]
+    company = (company or "").strip()[:200]
+    person = (person or "").strip()[:120]
+
+    if not any((usdot, phone, company, person)):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Identify the caller with a USDOT number, phone, company, "
+                "or name."
+            ),
+        )
+
+    resumed = False
+    transcript = []
+    resumed_from = None
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            previous = _find_previous_call(
+                cur, usdot, phone, company, person
+            )
+
+            if previous and previous["status"] == "open":
+                session = previous
+                resumed = True
+                transcript = _load_call_transcript(cur, session["id"])
+            else:
+                caller_key = (
+                    previous["caller_key"]
+                    if previous
+                    else build_caller_key(usdot, phone, company, person)
+                )
+
+                session_id = "call_" + uuid.uuid4().hex
+                resumed = previous is not None
+                resumed_from = previous["id"] if previous else None
+
+                if previous:
+                    transcript = _load_call_transcript(
+                        cur, previous["id"]
+                    )
+                    session = {
+                        **previous,
+                        "id": session_id,
+                        "status": "open",
+                        "summary": previous.get("summary"),
+                    }
+                else:
+                    session = {
+                        "id": session_id,
+                        "caller_key": caller_key,
+                        "display_name": person or None,
+                        "company_name": company or None,
+                        "usdot_number": usdot or None,
+                        "phone": phone or None,
+                        "status": "open",
+                        "started_at": None,
+                        "last_activity_at": None,
+                        "ended_at": None,
+                        "summary": None,
+                        "resumed_from": None,
+                    }
+
+                cur.execute(
+                    f"""
+                    INSERT INTO public.call_sessions (
+                        id, caller_key, display_name, company_name,
+                        usdot_number, phone, status, summary, resumed_from
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, %s)
+                    RETURNING {CALL_SESSION_COLUMNS}
+                    """,
+                    (
+                        session_id,
+                        caller_key,
+                        person or (previous.get("display_name") if previous else None),
+                        company or (previous.get("company_name") if previous else None),
+                        usdot or (previous.get("usdot_number") if previous else None),
+                        phone or (previous.get("phone") if previous else None),
+                        previous.get("summary") if previous else None,
+                        resumed_from,
+                    ),
+                )
+                session = _call_session_to_dict(cur.fetchone())
+
+            greeting = _greeting_for(session, resumed, transcript)
+
+            cur.execute(
+                """
+                INSERT INTO public.call_messages (session_id, role, content)
+                VALUES (%s, 'assistant', %s)
+                """,
+                (session["id"], greeting),
+            )
+
+    log_event(
+        "call_started",
+        session_id=session["id"],
+        caller_key=session["caller_key"],
+        resumed=resumed,
+    )
+
+    return {
+        "session_id": session["id"],
+        "caller_key": session["caller_key"],
+        "resumed": resumed,
+        "resumed_from": resumed_from,
+        "company_name": session.get("company_name"),
+        "display_name": session.get("display_name"),
+        "usdot_number": session.get("usdot_number"),
+        "phone": session.get("phone"),
+        "summary": session.get("summary"),
+        "greeting": greeting,
+        "transcript": transcript,
+    }
+
+
+def get_call_session(session_id: str) -> dict:
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {CALL_SESSION_COLUMNS}
+                FROM public.call_sessions
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=404, detail="Call session not found."
+                )
+
+            session = _call_session_to_dict(row)
+            session["transcript"] = _load_call_transcript(
+                cur, session_id, limit=100
+            )
+
+    return session
+
+
+def handle_call_message(session_id: str, message: str) -> dict:
+    """Store one caller turn and produce the agent's reply.
+
+    The caller can never modify lead/review data here: there are no
+    write paths to those tables, and change requests are refused before
+    the model is called.
+    """
+    message = " ".join((message or "").split())[:1000]
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required.")
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {CALL_SESSION_COLUMNS}
+                FROM public.call_sessions
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=404, detail="Call session not found."
+                )
+            session = _call_session_to_dict(row)
+
+            if session["status"] != "open":
+                raise HTTPException(
+                    status_code=409, detail="This call has already ended."
+                )
+
+            transcript = _load_call_transcript(
+                cur, session_id, limit=CALL_HISTORY_LIMIT
+            )
+
+    intent = call_change_intent(message)
+
+    if intent:
+        reply = CALL_REFUSAL_REPLY
+        log_event(
+            "call_data_change_refused",
+            session_id=session_id,
+            caller_key=session["caller_key"],
+            intent=intent,
+        )
+    else:
+        reply = _call_agent_reply(session, transcript, message)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.call_messages (
+                    session_id, role, content, flagged
+                )
+                VALUES (%s, 'user', %s, %s)
+                """,
+                (session_id, message, bool(intent)),
+            )
+            cur.execute(
+                """
+                INSERT INTO public.call_messages (session_id, role, content)
+                VALUES (%s, 'assistant', %s)
+                """,
+                (session_id, reply),
+            )
+            cur.execute(
+                """
+                UPDATE public.call_sessions
+                SET last_activity_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+
+    return {
+        "session_id": session_id,
+        "reply": reply,
+        "refused": bool(intent),
+        "flagged": bool(intent),
+        "intent": intent,
+    }
+
+
+def end_call(session_id: str) -> dict:
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {CALL_SESSION_COLUMNS}
+                FROM public.call_sessions
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=404, detail="Call session not found."
+                )
+
+            session = _call_session_to_dict(row)
+            transcript = _load_call_transcript(cur, session_id, limit=100)
+            summary = derive_call_summary(transcript)
+
+            cur.execute(
+                """
+                UPDATE public.call_sessions
+                SET
+                    status = 'ended',
+                    ended_at = CURRENT_TIMESTAMP,
+                    last_activity_at = CURRENT_TIMESTAMP,
+                    summary = %s
+                WHERE id = %s
+                RETURNING 
+                """
+                + CALL_SESSION_COLUMNS,
+                (summary, session_id),
+            )
+            session = _call_session_to_dict(cur.fetchone())
+
+    log_event(
+        "call_ended",
+        session_id=session_id,
+        caller_key=session["caller_key"],
+        messages=len(transcript),
+    )
+
+    return {"success": True, "session": session, "summary": summary}
+
+
+def list_call_sessions(limit=20) -> list[dict]:
+    limit = max(1, min(int(limit), 100))
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {CALL_SESSION_COLUMNS}
+                FROM public.call_sessions
+                ORDER BY started_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+
+    return [_call_session_to_dict(row) for row in rows]
+
+
+class CallStartRequest(BaseModel):
+    usdot_number: str | None = Field(default=None, max_length=30)
+    phone: str | None = Field(default=None, max_length=30)
+    company_name: str | None = Field(default=None, max_length=200)
+    caller_name: str | None = Field(default=None, max_length=120)
+
+
+class CallMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+
+
+@app.get("/call")
+def call_page():
+    return FileResponse(PROJECT_ROOT / "static" / "call.html")
+
+
+@app.post("/call-sessions", dependencies=[Depends(require_admin)])
+def start_call(request: CallStartRequest):
+    return begin_call(
+        usdot=request.usdot_number or "",
+        phone=request.phone or "",
+        company=request.company_name or "",
+        person=request.caller_name or "",
+    )
+
+
+@app.post(
+    "/call-sessions/{session_id}/messages",
+    dependencies=[Depends(require_admin)],
+)
+def post_call_message(session_id: str, request: CallMessageRequest):
+    return handle_call_message(session_id, request.message)
+
+
+@app.get(
+    "/call-sessions/{session_id}",
+    dependencies=[Depends(require_admin)],
+)
+def get_call(session_id: str):
+    return get_call_session(session_id)
+
+
+@app.post(
+    "/call-sessions/{session_id}/end",
+    dependencies=[Depends(require_admin)],
+)
+def post_end_call(session_id: str):
+    return end_call(session_id)
+
+
+@app.get("/call-sessions", dependencies=[Depends(require_admin)])
+def get_call_sessions(limit: int = 20):
+    return {"sessions": list_call_sessions(limit=limit)}
+
+
+@app.on_event("startup")
+def _ensure_call_tables_on_startup():
+    try:
+        ensure_call_tables()
+    except Exception as error:
+        log_event(
+            "call_tables_schema_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+
+
+# --------------------------------------------------
 # Operator assistant (chatbot that runs real actions)
 # --------------------------------------------------
 
