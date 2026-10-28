@@ -345,6 +345,18 @@ invalid_number, failed — covered by tests.
 > new theme: answer (resumed identity), driver message → read-only
 > refusal, end call → "Call ended. Summary stored." Full suite **198
 > passed / 0 failed / 0 skipped** (35.2 s).
+>
+> **Pipeline page UI restyle record (2026-10-28):** `static/pipeline.html`
+> restyled from dark theme to the same white-and-green professional look
+> as the call console — light background, white cards with soft shadows,
+> green accent buttons/chips, green stat numbers, light green user chat
+> bubbles and green-crowned assistant labels, light red/amber states for
+> refused/error badges and due tasks, hover rows on tables, green ⼁Call
+> button per lead. Styling only; no ids/behavior changed. Browser-verified:
+> computed styles are light (card `rgb(255,255,255)`, button
+> `rgb(22,163,74)`), and the assistant answered "Show metrics" live on the
+> new theme (487 leads reported). Full suite **198 passed / 0 failed /
+> 0 skipped** (79.5 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
