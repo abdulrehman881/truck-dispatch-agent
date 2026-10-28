@@ -1997,6 +1997,33 @@ def call_page():
     return FileResponse(PROJECT_ROOT / "static" / "call.html")
 
 
+@app.post("/call-sessions/outbound", dependencies=[Depends(require_admin)])
+def place_outbound_call(request: CallStartRequest):
+    """Operator-initiated outbound call to a carrier.
+
+    Creates (or resumes) the call session and returns an auto-connect
+    URL for the /call page so the receiver console opens by itself.
+    """
+    result = begin_call(
+        usdot=request.usdot_number or "",
+        phone=request.phone or "",
+        company=request.company_name or "",
+        person=request.caller_name or "",
+    )
+    auto_url = "/call?session_id=" + result["session_id"] + "&auto=1"
+    log_event(
+        "outbound_call_requested",
+        session_id=result["session_id"],
+        caller_key=result["caller_key"],
+        resumed=result["resumed"],
+    )
+    return {
+        **result,
+        "auto_connect_url": auto_url,
+        "message": "Call session ready. Open " + auto_url + " to connect.",
+    }
+
+
 @app.post("/call-sessions", dependencies=[Depends(require_admin)])
 def start_call(request: CallStartRequest):
     return begin_call(
@@ -2103,23 +2130,29 @@ ASSISTANT_ACTIONS = {
         "interested|not_interested|callback_requested|do_not_contact; "
         "omit for all leads)}"
     ),
+    "place_outbound_call": (
+        "Open the web call console for a carrier. args: {usdot_number, "
+        "company_name, phone, caller_name}. This creates a call session "
+        "and returns an auto-connect URL for the /call page."
+    ),
 }
 
 ASSISTANT_REFUSAL_KEYWORDS = (
     "delete", "drop ", "truncate", "wipe", "erase", "remove all",
     "reset all", "purge", "rm -rf", "buy", "purchase", "pay ", "charge",
     "subscribe", "send email", "send sms", "dial", "real call",
-    "place a call", "make the call", "go live", "call the carrier",
-    "call this carrier", "call a carrier", "phone the carrier",
+    "place a call", "make the call", "go live", "phone the carrier",
 )
 
 # Phrasing variants that are still "make a real phone call". Kept as
 # patterns so "place a real call" is refused while ordinary questions
 # such as "what is the outbound calling mode" are still allowed.
+# Note: "call carrier" / "call the carrier" is now ALLOWED for the web
+# call console (/call page) — only real telephony dialing is refused.
 ASSISTANT_REFUSAL_PATTERNS = (
     re.compile(r"\b(place|make|start|begin|initiate)\b.{0,25}\bcall\b"),
     re.compile(r"\b(dial|phone)\b.{0,25}\b(carrier|lead|number|them|him|her)\b"),
-    re.compile(r"\bcall\b.{0,25}\b(carrier|lead|them|him|her)\b"),
+    # Allow "call carrier" for web console; only block explicit "real call" / "dial" / "phone"
 )
 
 
@@ -2142,6 +2175,10 @@ ASSISTANT_SYSTEM_PROMPT = (
     "operator's request into ONE JSON object and output JSON only.\n"
     "Allowed actions and args:\n"
     + "\n".join(f"- {name}: {desc}" for name, desc in ASSISTANT_ACTIONS.items())
+    + "\n\nExamples:\n"
+    + '- "call carrier 1234567" -> {"action": "place_outbound_call", "args": {"usdot_number": "1234567"}}\n'
+    + '- "call carrier MLA Logistics" -> {"action": "place_outbound_call", "args": {"company_name": "MLA Logistics"}}\n'
+    + '- "call carrier 555-123-4567" -> {"action": "place_outbound_call", "args": {"phone": "555-123-4567"}}\n'
     + "\nIf the request is unclear, or asks for something destructive "
     "(deleting data), a real phone call, or spending money, return "
     '{"action": "help", "args": {}}.\n'
@@ -2300,6 +2337,22 @@ def _assistant_fallback_plan(message: str) -> dict:
             args["follow_up_at"] = tail
         return {"action": "save_review", "args": args}
 
+    # call carrier <usdot|company|phone> -- opens web call console
+    call_match = re.match(
+        r"^(?:call|phone|dial)\s+(?:carrier\s+)?(.+)$", text, re.IGNORECASE
+    )
+    if call_match:
+        target = call_match.group(1).strip()
+        # Try to parse as USDOT, phone, or company name
+        args = {}
+        if re.fullmatch(r"\d{1,8}", target):
+            args["usdot_number"] = target
+        elif re.search(r"\d{3}.*\d{3}.*\d{4}", target):
+            args["phone"] = target
+        else:
+            args["company_name"] = target
+        return {"action": "place_outbound_call", "args": args}
+
     search = re.match(
         r"^(?:search|find|look up|lookup)\s+(.+)$", text, re.IGNORECASE
     )
@@ -2363,8 +2416,10 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
             "or \"mark 1234567 callback in 2 hours\"), list callbacks that "
             "are due, keep reminders (\"remind me to ... in 2 hours\"), "
             "list what is due, mark tasks done, show pipeline job status "
-            "and leads, and prepare the Excel export (e.g. \"export "
-            "interested carriers to excel\"). I never delete data, never "
+            "and leads, prepare the Excel export (e.g. \"export "
+            "interested carriers to excel\"), and open the web call console "
+            "for a carrier (e.g. \"call carrier 1234567\" or "
+            "\"call carrier MLA Logistics\"). I never delete data, never "
             "make real phone calls, and never spend money.",
             {"actions": sorted(ASSISTANT_ACTIONS)},
         )
@@ -2635,6 +2690,37 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
             "Click 'Download Excel' in this panel to save it (it sends "
             "your admin token automatically).",
             {"url": url, "review_status": status or None},
+        )
+
+    if action == "place_outbound_call":
+        usdot = str(args.get("usdot_number", "")).strip()
+        company = str(args.get("company_name", "")).strip()
+        phone = str(args.get("phone", "")).strip()
+        caller = str(args.get("caller_name", "")).strip()
+
+        if not any((usdot, company, phone, caller)):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Provide at least one of: usdot_number, company_name, "
+                    "phone, or caller_name to identify the carrier."
+                ),
+            )
+
+        result = begin_call(
+            usdot=usdot, company=company, phone=phone, person=caller
+        )
+        auto_url = f"/call?session_id={result['session_id']}&auto=1"
+        who = company or usdot or phone or caller or "the carrier"
+        return (
+            f"Opening call console for {who}. "
+            f"The call page will auto-connect: {auto_url}",
+            {
+                "session_id": result["session_id"],
+                "caller_key": result["caller_key"],
+                "auto_connect_url": auto_url,
+                "resumed": result["resumed"],
+            },
         )
 
     raise HTTPException(status_code=400, detail="Unsupported action.")

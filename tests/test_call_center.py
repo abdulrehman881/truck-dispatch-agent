@@ -454,3 +454,81 @@ def test_conversation_reply_never_writes_carrier_tables(monkeypatch):
     every_sql = " ".join(call[0] for call in cursor.calls)
     for table in ("carrier_leads", "carrier_reviews", "carrier_call_attempts"):
         assert table not in every_sql
+
+
+# --------------------------------------------------
+# Operator-initiated outbound call (auto-open receiver page)
+# --------------------------------------------------
+
+def test_outbound_endpoint_returns_auto_connect_url(monkeypatch):
+    monkeypatch.setattr(
+        main, "begin_call",
+        lambda usdot="", phone="", company="", person="": {
+            "session_id": "call_out1", "caller_key": "usdot:1",
+            "resumed": False,
+        },
+    )
+
+    body = authed.post(
+        "/call-sessions/outbound",
+        json={"usdot_number": "1", "company_name": "ACME"},
+    ).json()
+
+    assert body["auto_connect_url"] == "/call?session_id=call_out1&auto=1"
+    assert body["session_id"] == "call_out1"
+
+
+def test_outbound_endpoint_requires_admin_token():
+    assert client.post(
+        "/call-sessions/outbound", json={"company_name": "x"}
+    ).status_code == 401
+
+
+def test_fallback_parser_call_carrier_by_usdot():
+    plan = main._assistant_fallback_plan("call carrier 1234567")
+    assert plan["action"] == "place_outbound_call"
+    assert plan["args"]["usdot_number"] == "1234567"
+
+
+def test_fallback_parser_call_carrier_by_company():
+    plan = main._assistant_fallback_plan("call carrier MLA Logistics")
+    assert plan["action"] == "place_outbound_call"
+    assert plan["args"]["company_name"] == "MLA Logistics"
+
+
+def test_fallback_parser_call_carrier_by_phone():
+    plan = main._assistant_fallback_plan("call carrier 312-555-0142")
+    assert plan["action"] == "place_outbound_call"
+    assert plan["args"]["phone"] == "312-555-0142"
+
+
+def test_assistant_calls_carrier_action(monkeypatch):
+    """The assistant executes place_outbound_call and returns an auto URL."""
+    monkeypatch.setattr(
+        main,
+        "plan_assistant_action",
+        lambda message: {
+            "action": "place_outbound_call",
+            "args": {"usdot_number": "1234567"},
+        },
+    )
+    monkeypatch.setattr(
+        main, "begin_call",
+        lambda usdot="", phone="", company="", person="": {
+            "session_id": "call_as1", "caller_key": "usdot:1234567",
+            "resumed": False, "greeting": "g", "transcript": [],
+        },
+    )
+
+    body = authed.post(
+        "/assistant", json={"message": "call carrier 1234567"}
+    ).json()
+
+    assert body["action"] == "place_outbound_call"
+    assert body["data"]["auto_connect_url"] == "/call?session_id=call_as1&auto=1"
+    assert "Opening call console" in body["reply"]
+
+
+def test_real_dialing_phrasings_still_refused():
+    for message in ("dial the carrier", "phone the carrier"):
+        assert main._assistant_refusal_reason(message) is not None

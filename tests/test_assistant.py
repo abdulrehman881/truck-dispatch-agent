@@ -63,7 +63,6 @@ def test_destructive_or_costly_requests_are_refused(message, monkeypatch):
     [
         "place a real call now",
         "dial this carrier",
-        "call the lead",
         "make the call",
     ],
 )
@@ -77,6 +76,9 @@ def test_refusal_patterns_catch_call_phrasings(message):
         "what is the outbound calling mode",
         "show me the metrics",
         "how many calls were attempted today",
+        "call the lead",
+        "call the carrier",
+        "call carrier 1234567",
     ],
 )
 def test_refusal_patterns_allow_ordinary_questions(message):

@@ -162,15 +162,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[c]);
 
-let token = sessionStorage.getItem("admin_token") || "";
+let token = sessionStorage.getItem("admin_token") ||
+  localStorage.getItem("admin_token") || "";
 const authHeaders = () => ({
   ...(token ? { Authorization: "Bearer " + token } : {}),
   "Content-Type": "application/json",
 });
-
-let sessionId = null;
-let timerId = null;
-let recognition = null;
 
 function tokenMissing() {
   token = prompt("Admin token (kept in this tab only):") || "";
@@ -180,6 +177,10 @@ function tokenMissing() {
   }
   return false;
 }
+
+let sessionId = null;
+let timerId = null;
+let recognition = null;
 
 async function openCall(message, isRecognized) {
   if (!token && !tokenMissing()) return;
@@ -407,6 +408,102 @@ async function loadRecent() {
 }
 
 loadRecent();
+
+// ==== Auto-connect on inbound agent call ====
+(function initAutoConnect() {
+  const params = new URLSearchParams(window.location.search);
+  const auto = params.get("auto") === "1";
+  const sessionId = params.get("session_id");
+  const usdot = params.get("usdot");
+  const phone = params.get("phone");
+  const company = params.get("company");
+  const person = params.get("person");
+
+  if (!auto) return;
+
+  // If we have a session_id, resume that session directly
+  if (sessionId) {
+    showStatus("Auto-connecting to call session…");
+    resumeSession(sessionId);
+    return;
+  }
+
+  // Otherwise, start a new call with the provided identity
+  if (usdot || phone || company || person) {
+    showStatus("Auto-connecting to carrier…");
+    if (usdot) $("fUsdot").value = usdot;
+    if (phone) $("fPhone").value = phone;
+    if (company) $("fCompany").value = company;
+    if (person) $("fPerson").value = person;
+    // Small delay to let UI settle, then click Answer
+    setTimeout(() => $("answerBtn").click(), 150);
+    return;
+  }
+})();
+
+async function resumeSession(targetSessionId) {
+  if (!token && !tokenMissing()) return;
+  try {
+    const res = await fetch("/call-sessions/" + targetSessionId, {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (res.status === 401) {
+      token = "";
+      sessionStorage.removeItem("admin_token");
+      showStatus("🔒 Session requires admin token."); return;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showStatus("⚠ " + (body.detail || res.status)); return;
+    }
+    const session = await res.json();
+
+    // An already-ended session cannot take messages: start a fresh call
+    // with the same identity instead.
+    if (session.status !== "open") {
+      showStatus("Session already ended — starting a fresh call.");
+      $("fUsdot").value = session.usdot_number || "";
+      $("fPhone").value = session.phone || "";
+      $("fCompany").value = session.company_name || "";
+      $("fPerson").value = session.display_name || "";
+      setTimeout(() => $("answerBtn").click(), 150);
+      return;
+    }
+
+    sessionId = targetSessionId;
+
+    $("setupCard").classList.add("hidden");
+    $("msgForm").classList.remove("hidden");
+    $("endBtn").classList.remove("hidden");
+    $("micOn").disabled = false;
+
+    $("callerName").textContent =
+      session.display_name || session.company_name ||
+      session.usdot_number || session.phone || "Unknown caller";
+    $("callerKey").textContent = session.caller_key;
+
+    clearTranscript();
+    for (const item of session.transcript || []) {
+      addBubble(item.role === "assistant" ? "agent" : "me",
+                item.content, item.flagged);
+    }
+    if (session.resumed_from) {
+      addDivider("Previous conversation — resuming where you left off");
+    }
+    // The transcript already contains the newest agent message (greeting
+    // or continuation); only speak it, it has already been displayed.
+    const lastMsg = session.transcript && session.transcript[session.transcript.length - 1];
+    if (lastMsg && lastMsg.role === "assistant") {
+      speak(lastMsg.content);
+    }
+
+    startTimer();
+    showStatus("Auto-connected.");
+    $("msgInput").focus();
+  } catch (err) {
+    showStatus("⚠ Auto-connect failed: " + err.message);
+  }
+}
 </script>
 </body>
 </html>

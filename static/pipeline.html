@@ -187,6 +187,7 @@
       <button type="button" class="chip" data-msg="Reserve the next carrier">Next carrier</button>
       <button type="button" class="chip" data-msg="Callbacks due">Callbacks due</button>
       <button type="button" class="chip" data-msg="My tasks">My tasks</button>
+      <button type="button" class="chip" data-msg="Call carrier 1234567">Call carrier</button>
       <button type="button" class="chip" data-msg="What can you do?">What can you do?</button>
     </div>
     <div class="export-row">
@@ -203,7 +204,7 @@
     </div>
     <form class="assistant-row" id="assistantForm">
       <input id="assistantInput" type="text" maxlength="1000"
-             placeholder="e.g. search logistics carriers, show pipeline status, mark 1234567 interested">
+             placeholder="e.g. search logistics carriers, call carrier 1234567, mark 1234567 interested">
       <button id="assistantSend" type="submit">Send</button>
     </form>
   </div>
@@ -268,7 +269,7 @@
     <table>
       <thead><tr>
         <th>USDOT</th><th>Company</th><th>Phone</th><th>Sources</th>
-        <th>Fleet</th><th>Score</th><th>Priority</th><th>Status flags</th>
+        <th>Fleet</th><th>Score</th><th>Priority</th><th>Status flags</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -418,6 +419,9 @@
         tbody.innerHTML = "";
         for (const l of leads.slice(0, 50)) {
           const tr = document.createElement("tr");
+          const callUrl = "/call?usdot=" + encodeURIComponent(l.usdot_number || "") +
+            "&company=" + encodeURIComponent(l.company_name || "") +
+            "&phone=" + encodeURIComponent(l.phone || "") + "&auto=1";
           tr.innerHTML =
             "<td>" + esc(l.usdot_number) + "</td>" +
             "<td>" + esc(l.company_name) + "</td>" +
@@ -426,13 +430,19 @@
             "<td>" + esc(l.vehicle_count) + "</td>" +
             "<td>" + esc(l.lead_score) + "</td>" +
             '<td class="prio ' + esc(l.priority) + '">' + esc(l.priority) + "</td>" +
-            "<td>" + esc((l.review_reasons || []).join(", ")) + "</td>";
+            "<td>" + esc((l.review_reasons || []).join(", ")) + "</td>" +
+            '<td><button class="tiny call-btn" data-url="' + esc(callUrl) + '" title="Open call console for this carrier">📞 Call</button></td>';
           tbody.appendChild(tr);
         }
         if (!leads.length) {
-          tbody.innerHTML = '<tr><td colspan="8" class="muted">No qualified leads.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="9" class="muted">No qualified leads.</td></tr>';
         }
         document.getElementById("resultsCard").classList.remove("hidden");
+
+        // Attach click handlers for Call buttons
+        document.querySelectorAll("#rows .call-btn").forEach(btn => {
+          btn.onclick = () => window.open(btn.dataset.url, "_blank");
+        });
       });
   }
 
@@ -496,8 +506,9 @@
   addMessage(
     "bot",
     "Hi! I can run metrics, carrier search, carrier reservations, reviews, " +
-    "callback scheduling, and pipeline reports for you. I never delete " +
-    "data, place real calls, or spend money."
+    "callback scheduling, reminders, pipeline reports, and open the web call " +
+    "console for a carrier (e.g. \"call carrier 1234567\"). I never delete " +
+    "data, place real phone calls, or spend money."
   );
 
   async function askAssistant(text) {
@@ -536,6 +547,16 @@
         body.action === "refused" ? "refused" : "bot",
         body.reply || "(no reply)"
       );
+      // Operator asked the agent to call a carrier: open the receiver
+      // console automatically (and hand it the token via localStorage).
+      if (body.data && body.data.auto_connect_url) {
+        try { localStorage.setItem("admin_token", token); } catch {}
+        addMessage(
+          "bot",
+          "📞 Opening the call console for the carrier — it will connect automatically."
+        );
+        window.open(body.data.auto_connect_url, "_blank");
+      }
     } catch (err) {
       pending.remove();
       addMessage("error", "Network error: " + err.message);

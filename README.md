@@ -120,6 +120,14 @@ provides a simulated call console where you can "answer" carrier calls.
   callers are listed for quick call-backs.
 - **Speech**: Optional browser Web Speech API (speech synthesis to hear the
   agent, speech recognition for voice input in Chrome).
+- **Auto-open receiver console**: Saying "call carrier 1234567" (or a
+  company/phone) to the assistant creates the call session, hands the
+  token to the call page via `localStorage`, and opens `/call` in a new
+  tab; the page auto-connects that session (`?session_id=...&auto=1`,
+  or identity params `usdot/company/phone/person` + `auto=1`). If the
+  session already ended, the page starts a fresh call with the same
+  identity. The pipeline results table also has a per-lead **📞 Call**
+  button, and `POST /call-sessions/outbound` builds the auto URL direct.
 
 
 Every follow-up is stored in the `public.scheduled_tasks` table, so

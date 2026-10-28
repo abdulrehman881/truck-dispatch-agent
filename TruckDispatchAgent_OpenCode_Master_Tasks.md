@@ -316,6 +316,24 @@ invalid_number, failed — covered by tests.
 > stored, change-request refused and flagged, re-calling with same identity
 > successfully resumed past transcript and summary. Carrier lead/review data
 > remained untouched.
+>
+> **Auto-open receiver console record (2026-10-28):** saying "call
+> carrier 1234567" (or a company/phone) to the assistant now plans the
+> new whitelisted `place_outbound_call` action (Groq prompt examples +
+> fallback parser). It creates/resumes the call session and returns an
+> `auto_connect_url`; the pipeline chat automatically opens `/call` in a
+> new tab (token handed over via `localStorage`) and the page
+> auto-connects via `?session_id=...&auto=1` — ended sessions fall back
+> to a fresh call with the same identity. Endpoint
+> `POST /call-sessions/outbound` builds the same URL directly, and the
+> pipeline results table has a per-lead Call button. Only real dialing
+> phrasings stay refused ("dial/phone the carrier"); "call carrier X" is
+> allowed (web console). Fixed a resume-page bug where a shadowed
+> `sessionId` parameter prevented message sends. Verified live:
+> assistant planned the action, auto URL returned, page auto-connected
+> ("Auto-connected." state, timer running), driver message sent and
+> agent replied in-session. 8 new tests; full suite **198 passed /
+> 0 failed / 0 skipped** (71.9 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
