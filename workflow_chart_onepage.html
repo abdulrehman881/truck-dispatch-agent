@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TruckDispatchAgent — Complete Workflow (One-Page Big Chart)</title>
+<style>
+  /* ONE giant page: everything on a single sheet like a big wall chart */
+  @page {
+    size: 8200px 3000px;
+    margin: 0;
+  }
+  html, body { margin: 0; padding: 0; }
+  body {
+    width: 8200px;
+    height: 3000px;
+    background: #f5f7f4;
+    color: #1c2422;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    box-sizing: border-box;
+    padding: 90px 100px;
+    display: flex;
+    flex-direction: column;
+  }
+  header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 40px; }
+  h1 { font-size: 84px; margin: 0; color: #12803c; }
+  .sub { font-size: 34px; color: #6b7a72; margin-top: 12px; }
+  .legend { display: flex; gap: 22px; }
+  .lg {
+    display: inline-flex; align-items: center; gap: 14px;
+    background: #fff; border: 3px solid #dfe6df; border-radius: 999px;
+    padding: 14px 30px; font-size: 30px; font-weight: 600;
+  }
+  .sw { width: 46px; height: 26px; border-radius: 8px; display: inline-block; }
+  /* the chart fills the rest of the page */
+  .chart { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .mermaid svg { display: block; }
+  footer {
+    border-top: 4px solid #dfe6df; padding-top: 26px;
+    display: flex; justify-content: space-between;
+    font-size: 28px; color: #6b7a72;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>TruckDispatchAgent — Complete Workflow</h1>
+    <div class="sub">Every stage on one chart · green = working &amp; tested · blue = bounded AI call · amber = refusal/safety · dashed gray = planned/blocked</div>
+  </div>
+  <div class="legend">
+    <span class="lg"><span class="sw" style="background:#c9ecd6;border:3px solid #16a34a"></span> working</span>
+    <span class="lg"><span class="sw" style="background:#dbeafe;border:3px solid #2563eb"></span> AI model call</span>
+    <span class="lg"><span class="sw" style="background:#fde68a;border:3px solid #b45309"></span> refusal</span>
+    <span class="lg"><span class="sw" style="background:#eef2ee;border:3px dashed #94a3b8"></span> planned</span>
+    <span class="lg"><span class="sw" style="background:#fef9c3;border:3px solid #ca8a04"></span> worker loop</span>
+  </div>
+</header>
+
+<div class="chart">
+<pre class="mermaid">
+flowchart LR
+  START((START)):::working
+
+  subgraph INGEST["  1 — LOAD AND QUALIFY CARRIERS"]
+    direction LR
+    upload["PDF upload<br/>FMCSA Register<br/>uploaded by operator"]:::working
+    extract["extract_carriers<br/>USDOT · MC · company · phone"]:::working
+    dup{"duplicates or<br/>malformed rows?"}:::refusal
+    badreport["invalid rows reported,<br/>nothing lost"]:::refusal
+    verify["verify fmcsa<br/>official API cross-check"]:::working
+    score["score and prioritize<br/>lead_score · fleet · priority"]:::working
+    db[("carrier_leads<br/>PostgreSQL")]:::working
+  end
+
+  subgraph CALL["  2 — WORK THE LEADS  (voice agent Adam)"]
+    direction LR
+    reserve["reserve next carrier<br/>skips DNC and reserved"]:::working
+    ring["receiver console rings<br/>driver answers or declines"]:::working
+    guard{"data-change or<br/>delete order?"}:::refusal
+    refuse["refusal reply<br/>message flagged"]:::refusal
+    llm["Adam answers<br/>groq model<br/>never invents data"]:::model
+    review{"review?"}:::working
+    interested["interested<br/>excel hot list"]:::working
+    notint["not interested"]:::working
+    dnc["do not contact<br/>never called again"]:::refusal
+    callback["callback requested"]:::working
+  end
+
+  subgraph SCHED["  3 — FOLLOW-UP WORKER  (automatic)"]
+    direction LR
+    task[("scheduled task<br/>callback at due time")]:::working
+    worker["due worker tick<br/>pending → due<br/>never dials itself"]:::worker
+    remind["reminder card<br/>operator presses Call"]:::working
+  end
+
+  subgraph ASSIST["  4 — OPERATOR ASSISTANT  (chat and voice)"]
+    direction LR
+    ask["operator asks Adam"]:::working
+    blocked{"delete · dial ·<br/>billing request?"}:::refusal
+    orefuse["refusal reply<br/>nothing runs"]:::refusal
+    action["whitelisted action<br/>metrics · search · reserve ·<br/>review · reminder · excel"]:::working
+    open["open receiver console<br/>new tab auto-connect"]:::working
+  end
+
+  subgraph FUTURE["  5 — DISPATCH SIGNED CARRIERS  (Job 2 planned)"]
+    direction LR
+    loads["load discovery<br/>load board integration"]:::planned
+    rate["rate preparation<br/>human confirms everything"]:::planned
+    track["dispatch and tracking<br/>check calls"]:::planned
+  end
+
+  %% flow of work
+  START --> upload --> extract --> dup
+  dup -- no --> verify --> score --> db
+  dup -- yes --> badreport --> verify
+  db --> reserve --> ring
+  ring -- answered --> guard
+  guard -- no --> llm --> review
+  guard -- yes --> refuse --> review
+  ring -- declined --> reserve
+  review -- interested --> interested
+  review -- "call me later" --> callback --> task
+  review -- not --> notint
+  review -- "stop calling" --> dnc
+  task --> worker --> remind
+  remind -- "operator calls back" --> ring
+  ask --> blocked
+  blocked -- no --> action
+  blocked -- yes --> orefuse
+  action -- "call carrier X" --> open --> ring
+  db --> ask
+  interested -.-> loads -.-> rate -.-> track
+
+  classDef working fill:#c9ecd6,stroke:#16a34a,stroke-width:3px,color:#143324;
+  classDef model fill:#dbeafe,stroke:#2563eb,stroke-width:3px,color:#152747;
+  classDef refusal fill:#fde68a,stroke:#b45309,stroke-width:3px,color:#4a2c05;
+  classDef worker fill:#fef9c3,stroke:#ca8a04,stroke-width:3px,color:#43300a;
+  classDef planned fill:#eef2ee,stroke:#94a3b8,stroke-width:3px,strokeDasharray:8 6,color:#475569;
+  style INGEST fill:#fbfdfc,stroke:#dfe6df
+  style CALL fill:#fbfdfc,stroke:#dfe6df
+  style SCHED fill:#fbfdfc,stroke:#dfe6df
+  style ASSIST fill:#fbfdfc,stroke:#dfe6df
+  style FUTURE fill:#fbfdfc,stroke:#dfe6df
+</pre>
+</div>
+
+<footer>
+  <span>TruckDispatchAgent · FastAPI + PostgreSQL + Groq + web phone console</span>
+  <span>Billing excluded by operator decision · telephony blocked · full records: TruckDispatchAgent_OpenCode_Master_Tasks.md</span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  // Initialize immediately (script at end of body, before DOMContentLoaded),
+  // so the flowchart config actually applies.
+  window.mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      fontSize: "30px",
+      fontFamily: "Segoe UI, sans-serif",
+    },
+    flowchart: {
+      curve: "basis",
+      useMaxWidth: false,      /* natural size — big chart, not squeezed */
+      htmlLabels: true,
+      nodeSpacing: 260,
+      rankSpacing: 320,
+      padding: 40,
+    },
+    securityLevel: "loose",
+  });
+
+  // After render, fit the chart ON ONE PAGE no matter how large it drew.
+  (function fitLoop() {
+    let attempts = 0;
+    const timer = setInterval(() => {
+      attempts++;
+      const svg = document.querySelector(".mermaid svg");
+      if (!svg && attempts < 60) return;
+      clearInterval(timer);
+      if (!svg) return;
+      const vb = (svg.getAttribute("viewBox") || "").split(/\s+/).map(Number);
+      if (vb.length !== 4) return;
+      const natW = vb[2], natH = vb[3];
+      const availW = 7800;                 /* body 8200 - padding */
+      const availH = 2300;                 /* page minus header/footer */
+      const scale = Math.min(availW / natW, availH / natH, 1.8);
+      svg.style.width = (natW * scale) + "px";
+      svg.style.height = (natH * scale) + "px";
+      svg.style.maxWidth = "none";
+    }, 250);
+  })();
+</script>
+</body>
+</html>
