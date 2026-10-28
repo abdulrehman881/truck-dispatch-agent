@@ -357,6 +357,31 @@ invalid_number, failed — covered by tests.
 > `rgb(22,163,74)`), and the assistant answered "Show metrics" live on the
 > new theme (487 leads reported). Full suite **198 passed / 0 failed /
 > 0 skipped** (79.5 s).
+>
+> **Operator console v2 + incoming ring record (2026-10-28):** major UI
+> upgrade across both pages, backend untouched. (1) `static/pipeline.html`
+> rebuild as a same-tab console: sticky topbar with ☰ hamburger opening a
+> slide-in sidebar (Agent chat & voice · Upload carrier PDF · Excel files
+> · Reminders & schedules); old cards became `.view` sections switched in
+> the same tab; chat is the main-page center with quick chips, exports
+> moved to tile buttons on the Excel view, tasks table to the Reminders
+> view. New 🎤 mic button uses Web Speech recognition — admin speaks,
+> text goes to `/assistant`, replies optionally spoken via
+> speechSynthesis (🔊 toggle, mic paused while Adam talks). Fixed a latent
+> bug: auto-open used to stringify the `#token` input element into
+> localStorage; now it stores the real admin token. (2)
+> `static/call.html` incoming-call flow: when the agent auto-opens the
+> receiver page, a ringing overlay (pulsing avatar + caller name resolved
+> via a read-only session GET) shows **✅ Answer / ❌ Decline**; decline
+> starts no conversation and ends a pre-created session as missed; answer
+> connects as before with **voice agent default** (speaker + mic auto-on)
+> and the chat box as second option. Browser-verified live: real outbound
+> session (`call_f69db43e…`), ring visible with caller "Ring Test
+> Logistics", decline path clears status, answer path connected (greeting
+> displayed + spoken), driver message produced an agent reply, call
+> ended. Pipeline page verified: sidebar open/close, four views switch in
+> the same tab, assistant answered "Show metrics" live (487 leads). Full
+> suite **198 passed / 0 failed / 0 skipped** (61.2 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,

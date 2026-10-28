@@ -29,9 +29,59 @@
     color: var(--text);
     min-height: 100vh;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 18px 60px; }
+  /* ===== top bar + sidebar ===== */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+  }
+  #menuBtn {
+    background: var(--accent-soft); color: var(--accent-dark);
+    border: 1px solid #bfe4cf; border-radius: 10px;
+    font-size: 1.15rem; width: 44px; height: 42px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #menuBtn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .topbar .brand { font-weight: 700; font-size: 1.05rem; }
+  .topbar .brand small { color: var(--muted); font-weight: 400; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
+    width: 270px; background: var(--panel);
+    border-right: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    transform: translateX(-102%);
+    transition: transform .22s ease;
+    display: flex; flex-direction: column;
+    padding: 16px 12px;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 6px 6px 10px; }
+  .side-link {
+    display: flex; align-items: center; gap: 12px;
+    background: none; border: none; color: var(--text);
+    text-align: left; font: inherit; font-weight: 600;
+    border-radius: 10px; padding: 11px 12px; margin-bottom: 3px; cursor: pointer;
+    width: 100%;
+  }
+  .side-link:hover { background: var(--accent-soft); color: var(--accent-dark); }
+  .side-link.active { background: var(--accent-soft); color: var(--accent-dark); }
+  .side-link .ico { font-size: 1.1rem; width: 22px; text-align: center; }
+  .side-note { margin: 8px 6px 0; color: var(--muted); font-size: .78rem; line-height: 1.4; }
+  .side-foot { margin-top: auto; }
+  .overlayish {
+    position: fixed; inset: 0; z-index: 50; background: rgba(28, 36, 34, .18);
+    display: none;
+  }
+  .overlayish.show { display: block; }
+  /* ===== layout ===== */
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 26px 18px 60px; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0 0 22px; font-size: .95rem; }
+  .view { display: none; }
+  .view.active { display: block; }
   .card {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -128,10 +178,10 @@
   .stat .num { font-size: 1.4rem; font-weight: 700; color: var(--accent-dark); }
   .stat .lbl { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
   .hidden { display: none; }
-  /* assistant */
+  /* assistant chat */
   .assistant .chat {
     display: flex; flex-direction: column; gap: 10px;
-    max-height: 320px; overflow-y: auto; padding: 4px 2px;
+    max-height: 420px; min-height: 260px; overflow-y: auto; padding: 4px 2px;
   }
   .msg {
     max-width: 88%; padding: 10px 13px; border-radius: 12px;
@@ -149,13 +199,22 @@
   .msg.refused .who, .msg.error .who { color: inherit; }
   .assistant-row { display: flex; gap: 10px; margin-top: 14px; }
   .assistant-row input { flex: 1; }
-  .export-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
-  select {
-    background: #fbfcfb; border: 1px solid var(--border);
-    color: var(--text); border-radius: 8px; padding: 9px 12px;
-    font-size: .9rem;
+  #micBtn {
+    background: var(--accent-soft); color: var(--accent-dark);
+    border: 1px solid #bfe4cf; border-radius: 9px;
+    padding: 10px 16px; font-size: 1.05rem;
   }
-  select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  #micBtn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #micBtn.listening {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); }
+    70% { box-shadow: 0 0 0 10px rgba(22, 163, 74, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  }
+  .mic-hint { color: var(--muted); font-size: .8rem; margin-top: 8px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .chip {
     background: #ffffff; border: 1px solid var(--border);
@@ -163,6 +222,16 @@
     font-size: .82rem; font-weight: 500; cursor: pointer;
   }
   .chip:hover { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
+  /* exports view */
+  .export-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .export-tile {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .export-tile b { font-size: .95rem; }
+  .export-tile small { color: var(--muted); line-height: 1.4; }
+  .export-tile button { padding: 8px 14px; font-size: .9rem; align-self: flex-start; }
+  /* tasks */
   .tasks-head {
     display: flex; justify-content: space-between; align-items: center;
     gap: 12px; flex-wrap: wrap;
@@ -183,122 +252,200 @@
 </style>
 </head>
 <body>
+
+<div class="topbar">
+  <button id="menuBtn" type="button" title="Menu">☰</button>
+  <div class="brand">🚛 TruckDispatchAgent <small>operator console</small></div>
+</div>
+
+<div class="overlayish" id="overlay"></div>
+
+<nav class="sidebar" id="sidebar">
+  <h2>Functions</h2>
+  <button class="side-link active" data-view="chat"><span class="ico">💬</span> Agent chat &amp; voice</button>
+  <button class="side-link" data-view="pipeline"><span class="ico">📄</span> Upload carrier PDF</button>
+  <button class="side-link" data-view="exports"><span class="ico">📈</span> Excel files</button>
+  <button class="side-link" data-view="reminders"><span class="ico">🗓</span> Reminders &amp; schedules</button>
+  <p class="side-note">Chat is on the main page. Use the 🎤 button to talk to the agent out loud.</p>
+  <div class="side-foot">
+    <p class="side-note">Calls to carriers always open the receiver console in a new tab — unchanged.</p>
+  </div>
+</nav>
+
 <div class="wrap">
-  <h1>🚛 Carrier Pipeline</h1>
-  <p class="sub">Upload an FMCSA registration PDF → the agent extracts carriers, classifies
-  them, verifies against the official FMCSA API, scores &amp; qualifies every lead,
-  and (optionally) imports them to the database. Live progress below.</p>
+  <h1>🤖 Talk to Adam — your dispatch agent</h1>
+  <p class="sub">Voice first: press 🎤 and speak. Chat is there as a second option.
+  Use the ☰ sidebar for files, PDF upload and reminders.</p>
 
-  <!-- Operator assistant -->
-  <div class="card assistant">
-    <h2 style="font-size:1.15rem;margin:0 0 4px">🤖 Operator assistant</h2>
-    <p class="muted" style="margin:0 0 14px;font-size:.88rem">
-      Ask it to run the app's normal operator actions. It never deletes data,
-      never places real phone calls, and never spends money.
-    </p>
-    <div class="chat" id="chat"></div>
-    <div class="chips" id="chips">
-      <button type="button" class="chip" data-msg="Show metrics">Show metrics</button>
-      <button type="button" class="chip" data-msg="Pipeline status">Pipeline status</button>
-      <button type="button" class="chip" data-msg="Reserve the next carrier">Next carrier</button>
-      <button type="button" class="chip" data-msg="Callbacks due">Callbacks due</button>
-      <button type="button" class="chip" data-msg="My tasks">My tasks</button>
-      <button type="button" class="chip" data-msg="Call carrier 1234567">Call carrier</button>
-      <button type="button" class="chip" data-msg="What can you do?">What can you do?</button>
+  <!-- ============ VIEW: CHAT (main) ============ -->
+  <section class="view active" id="view-chat">
+    <div class="card assistant">
+      <div class="tasks-head">
+        <h2 style="margin:0;font-size:1.1rem">Adam — operator assistant</h2>
+        <label class="opt"><input type="checkbox" id="speakReplies" checked> 🔊 Speak his replies</label>
+      </div>
+      <div class="row muted" style="display:flex;gap:12px;align-items:center;margin:10px 0 12px;flex-wrap:wrap;font-size:.9rem">
+        <input id="token" type="password" placeholder="Admin token (kept in this tab only)" size="30">
+        <button id="saveToken" style="padding:8px 14px" class="tiny">Save token</button>
+        <span class="muted" id="uploadState" style="font-size:.9rem"></span>
+      </div>
+      <div class="chat" id="chat"></div>
+      <div class="chips" id="chips">
+        <button type="button" class="chip" data-msg="Show metrics">Show metrics</button>
+        <button type="button" class="chip" data-msg="Pipeline status">Pipeline status</button>
+        <button type="button" class="chip" data-msg="Reserve the next carrier">Next carrier</button>
+        <button type="button" class="chip" data-msg="Callbacks due">Callbacks due</button>
+        <button type="button" class="chip" data-msg="My tasks">My tasks</button>
+        <button type="button" class="chip" data-msg="What can you do?">What can you do?</button>
+      </div>
+      <form class="assistant-row" id="assistantForm">
+        <input id="assistantInput" type="text" maxlength="1000"
+               placeholder="Ask Adam… e.g. show metrics, call carrier 1234567">
+        <button id="micBtn" type="button" title="Talk to Adam with your voice">🎤</button>
+        <button id="assistantSend" type="submit">Send</button>
+      </form>
+      <p class="mic-hint" id="micHint">🎤 Press the green mic and speak. Adam answers out loud.</p>
     </div>
-    <div class="export-row">
-      <label class="opt">Excel export
-        <select id="exportStatus">
-          <option value="interested">Interested carriers</option>
-          <option value="callback_requested">Callback requested</option>
-          <option value="not_interested">Not interested</option>
-          <option value="do_not_contact">Do not contact</option>
-          <option value="">All leads</option>
-        </select>
-      </label>
-      <button id="exportExcel" type="button" style="padding:8px 16px">⬇ Download Excel</button>
-    </div>
-    <form class="assistant-row" id="assistantForm">
-      <input id="assistantInput" type="text" maxlength="1000"
-             placeholder="e.g. search logistics carriers, call carrier 1234567, mark 1234567 interested">
-      <button id="assistantSend" type="submit">Send</button>
-    </form>
-  </div>
+  </section>
 
-  <!-- Scheduled tasks -->
-  <div class="card" id="tasksCard">
-    <div class="tasks-head">
-      <h2 style="font-size:1.15rem;margin:0">🗓 Scheduled tasks &amp; reminders</h2>
-      <button id="refreshTasks" type="button" style="padding:7px 14px">Refresh</button>
+  <!-- ============ VIEW: PIPELINE UPLOAD ============ -->
+  <section class="view" id="view-pipeline">
+    <div class="card">
+      <h2 style="margin:0 0 12px;font-size:1.15rem">📄 Upload carrier PDF</h2>
+      <div id="drop" class="drop">
+        <strong>Drag &amp; drop the carrier PDF here</strong><br>
+        or click to choose a file
+        <input id="file" type="file" accept=".pdf,application/pdf" class="hidden">
+      </div>
+      <div class="controls">
+        <span id="fileName" class="file-badge"></span>
+        <label class="opt">Max records
+          <input id="maxRecords" type="number" min="1" max="200" value="25" style="width:80px">
+        </label>
+        <label class="opt">
+          <input id="importDb" type="checkbox"> Import to database (dry run if unchecked)
+        </label>
+        <button id="start" disabled>Run pipeline</button>
+      </div>
     </div>
-    <p class="muted" style="margin:6px 0 14px;font-size:.88rem">
-      Stored in PostgreSQL and checked automatically. A due task is a
-      reminder for you — the app never places a call on its own.
-    </p>
-    <div id="tasksEmpty" class="muted">No tasks scheduled.</div>
-    <table class="hidden" id="tasksTable">
-      <thead><tr>
-        <th>Due</th><th>Task</th><th>Carrier</th><th>Status</th><th></th>
-      </tr></thead>
-      <tbody id="taskRows"></tbody>
-    </table>
-  </div>
 
-  <!-- Upload -->
-  <div class="card">
-    <div>
-      <input id="token" type="password" placeholder="Admin token (kept in this tab only)" size="34">
-      <span class="muted" style="font-size:.85rem">Save token</span>
-      <button id="saveToken" style="padding:8px 14px">Save</button>
+    <div class="card hidden" id="progressCard">
+      <div class="rail"><div id="railFill"></div></div>
+      <div class="stages" id="stages"></div>
+      <h3 style="margin:18px 0 8px;font-size:1rem">Live log</h3>
+      <div class="log" id="log"></div>
     </div>
-    <hr style="border-color:var(--border);opacity:.4;margin:16px 0">
-    <div id="drop" class="drop">
-      <strong>Drag &amp; drop the carrier PDF here</strong><br>
-      or click to choose a file
-      <input id="file" type="file" accept=".pdf,application/pdf" class="hidden">
-    </div>
-    <div class="controls">
-      <span id="fileName" class="file-badge"></span>
-      <label class="opt">Max records
-        <input id="maxRecords" type="number" min="1" max="200" value="25" style="width:80px">
-      </label>
-      <label class="opt">
-        <input id="importDb" type="checkbox"> Import to database (dry run if unchecked)
-      </label>
-      <button id="start" disabled>Run pipeline</button>
-      <span id="uploadState" class="muted" style="font-size:.9rem"></span>
-    </div>
-  </div>
 
-  <!-- Progress -->
-  <div class="card hidden" id="progressCard">
-    <div class="rail"><div id="railFill"></div></div>
-    <div class="stages" id="stages"></div>
-    <h3 style="margin:18px 0 8px;font-size:1rem">Live log</h3>
-    <div class="log" id="log"></div>
-  </div>
+    <div class="card hidden" id="resultsCard">
+      <h2 style="font-size:1.15rem;margin:0 0 12px">Pipeline results</h2>
+      <div class="summary" id="summary"></div>
+      <table>
+        <thead><tr>
+          <th>USDOT</th><th>Company</th><th>Phone</th><th>Sources</th>
+          <th>Fleet</th><th>Score</th><th>Priority</th><th>Status flags</th><th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
 
-  <!-- Results -->
-  <div class="card hidden" id="resultsCard">
-    <h2 style="font-size:1.15rem;margin:0 0 12px">Pipeline results</h2>
-    <div class="summary" id="summary"></div>
-    <table>
-      <thead><tr>
-        <th>USDOT</th><th>Company</th><th>Phone</th><th>Sources</th>
-        <th>Fleet</th><th>Score</th><th>Priority</th><th>Status flags</th><th></th>
-      </tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+  <!-- ============ VIEW: EXPORTS ============ -->
+  <section class="view" id="view-exports">
+    <div class="card">
+      <h2 style="margin:0 0 6px;font-size:1.15rem">📈 Excel files</h2>
+      <p class="muted" style="margin:0 0 16px;font-size:.9rem">
+        One click downloads the carrier list as Excel. Nothing else is changed.</p>
+      <div class="export-grid">
+        <div class="export-tile">
+          <b>Interested carriers</b><small>Everyone who agreed to hear more — your hot list.</small>
+          <button data-status="interested">⬇ Download</button>
+        </div>
+        <div class="export-tile">
+          <b>Callback requested</b><small>Carriers who asked you to call later.</small>
+          <button data-status="callback_requested">⬇ Download</button>
+        </div>
+        <div class="export-tile">
+          <b>Not interested</b><small>Declined — kept for records, not called again.</small>
+          <button data-status="not_interested">⬇ Download</button>
+        </div>
+        <div class="export-tile">
+          <b>Do not contact</b><small>Opt-outs. Respecting these is required by law.</small>
+          <button data-status="do_not_contact">⬇ Download</button>
+        </div>
+        <div class="export-tile">
+          <b>All leads</b><small>Complete list with every status.</small>
+          <button data-status="">⬇ Download</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VIEW: REMINDERS ============ -->
+  <section class="view" id="view-reminders">
+    <div class="card" id="tasksCard">
+      <div class="tasks-head">
+        <h2 style="font-size:1.15rem;margin:0">🗓 Reminders &amp; schedules</h2>
+        <button id="refreshTasks" type="button" style="padding:7px 14px">Refresh</button>
+      </div>
+      <p class="muted" style="margin:6px 0 14px;font-size:.88rem">
+        Stored in PostgreSQL and checked automatically. A due task is a
+        reminder for you — the app never places a call on its own.
+        Ask Adam in chat: “remind me to check carrier prices in 2 hours”.</p>
+      <div id="tasksEmpty" class="muted">No tasks scheduled.</div>
+      <table class="hidden" id="tasksTable">
+        <thead><tr>
+          <th>Due</th><th>Task</th><th>Carrier</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="taskRows"></tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
 <script>
-  const drop     = document.getElementById("drop");
-  const fileEl   = document.getElementById("file");
-  const fileName = document.getElementById("fileName");
-  const startBtn = document.getElementById("start");
-  const stateEl  = document.getElementById("uploadState");
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => {
+    const d = document.createElement("div");
+    d.textContent = v == null ? "" : v;
+    return d.innerHTML;
+  };
 
+  /* ================= sidebar ================= */
+  const sidebar = $("sidebar");
+  const overlay = $("overlay");
+  $("menuBtn").onclick = () => { sidebar.classList.add("open"); overlay.classList.add("show"); };
+  overlay.onclick = closeSidebar;
+  function closeSidebar() { sidebar.classList.remove("open"); overlay.classList.remove("show"); }
+
+  document.querySelectorAll(".side-link").forEach(link => {
+    link.onclick = () => {
+      document.querySelectorAll(".side-link").forEach(l => l.classList.remove("active"));
+      link.classList.add("active");
+      document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+      $("view-" + link.dataset.view).classList.add("active");
+      closeSidebar();
+      window.scrollTo({top: 0});
+      if (link.dataset.view === "reminders") loadTasks();
+    };
+  });
+
+  /* ================= auth ================= */
+  function token() { return sessionStorage.getItem("admin_token") || ""; }
+  function authHeaders() {
+    const t = token();
+    return t ? {"Authorization": "Bearer " + t} : {};
+  }
+  $("saveToken").onclick = () => {
+    sessionStorage.setItem("admin_token", $("token").value.trim());
+    $("uploadState").textContent = "Token saved for this tab.";
+    loadTasks();
+  };
+
+  /* ================= PDF upload ================= */
+  const drop = $("drop");
+  const fileEl = $("file");
+  const fileName = $("fileName");
+  const startBtn = $("start");
   let selectedFile = null;
   let pollTimer = null;
 
@@ -325,55 +472,47 @@
     startBtn.disabled = !selectedFile;
   }
 
-  document.getElementById("saveToken").onclick = () => {
-    sessionStorage.setItem("admin_token", document.getElementById("token").value.trim());
-    stateEl.textContent = "Token saved for this tab.";
-    loadTasks();
-  };
-
-  function authHeaders() {
-    const t = sessionStorage.getItem("admin_token") || "";
-    return t ? {"Authorization": "Bearer " + t} : {};
-  }
-
   startBtn.onclick = async () => {
     if (!selectedFile) return;
+    if (!token()) { stateNote("🔒 Save your admin token first (sidebar → chat)."); return; }
     startBtn.disabled = true;
-    stateEl.textContent = "Uploading…";
+    stateNote("Uploading…");
 
     const form = new FormData();
     form.append("file", selectedFile);
-    form.append("import_to_db", document.getElementById("importDb").checked);
-    form.append("max_records", document.getElementById("maxRecords").value);
+    form.append("import_to_db", $("importDb").checked);
+    form.append("max_records", $("maxRecords").value);
 
     try {
       const res = await fetch("/pipeline/upload", {method: "POST", headers: authHeaders(), body: form});
       const body = await res.json().catch(() => ({}));
       if (res.status === 401 || res.status === 503) {
-        stateEl.textContent = "🔒 " + (body.detail || "Admin token required — save it above first.");
+        stateNote("🔒 " + (body.detail || "Admin token required — save it in the chat page."));
         startBtn.disabled = false;
         return;
       }
       if (!res.ok) {
-        stateEl.textContent = "Upload failed: " + (body.detail || res.status);
+        stateNote("Upload failed: " + (body.detail || res.status));
         startBtn.disabled = false;
         return;
       }
-      stateEl.textContent = "Pipeline running (job " + body.job_id + ")…";
-      document.getElementById("progressCard").classList.remove("hidden");
-      document.getElementById("resultsCard").classList.add("hidden");
+      stateNote("Pipeline running (job " + body.job_id + ")…");
+      $("progressCard").classList.remove("hidden");
+      $("resultsCard").classList.add("hidden");
       watch(body.job_id);
     } catch (err) {
-      stateEl.textContent = "Upload error: " + err.message;
+      stateNote("Upload error: " + err.message);
       startBtn.disabled = false;
     }
   };
+
+  function stateNote(text) { $("uploadState").textContent = text; }
 
   const STAGE_ORDER = ["extract", "prepare", "verify", "qualify", "import"];
   const stageEls = {};
 
   function renderStages(stages) {
-    const host = document.getElementById("stages");
+    const host = $("stages");
     if (!host.children.length) {
       for (const name of STAGE_ORDER) {
         const el = document.createElement("div");
@@ -394,14 +533,13 @@
         : s.status.charAt(0).toUpperCase() + s.status.slice(1);
       el.querySelector(".name").textContent = s.label || s.name;
       el.querySelector(".detail").textContent = s.detail || "";
-      if (["done", "skipped"].includes(s.status)) completed++;
-      if (s.status === "failed") completed++;
+      if (["done", "skipped", "failed"].includes(s.status)) completed++;
     }
-    document.getElementById("railFill").style.width = (completed / stages.length * 100) + "%";
+    $("railFill").style.width = (completed / stages.length * 100) + "%";
   }
 
   function appendLogs(lines) {
-    const logEl = document.getElementById("log");
+    const logEl = $("log");
     for (const line of lines) {
       const div = document.createElement("div");
       if (line.includes("PIPELINE ERROR")) div.className = "errline";
@@ -411,17 +549,11 @@
     logEl.scrollTop = logEl.scrollHeight;
   }
 
-  function esc(v) {
-    const d = document.createElement("div");
-    d.textContent = v == null ? "" : v;
-    return d.innerHTML;
-  }
-
   function showResults(job) {
     const r = job.results || {};
     const stat = (k, label) => '<div class="stat"><div class="num">' + esc(r[k] ?? "—") +
       '</div><div class="lbl">' + label + '</div></div>';
-    document.getElementById("summary").innerHTML =
+    $("summary").innerHTML =
       stat("records_extracted", "Records extracted") +
       stat("candidates", "Candidates") +
       (r.verified != null ? stat("verified", "FMCSA verified") : "") +
@@ -431,7 +563,7 @@
     fetch("/pipeline/leads/" + job.job_id, {headers: authHeaders()})
       .then(res => res.ok ? res.json() : [])
       .then(leads => {
-        const tbody = document.getElementById("rows");
+        const tbody = $("rows");
         tbody.innerHTML = "";
         for (const l of leads.slice(0, 50)) {
           const tr = document.createElement("tr");
@@ -453,9 +585,8 @@
         if (!leads.length) {
           tbody.innerHTML = '<tr><td colspan="9" class="muted">No qualified leads.</td></tr>';
         }
-        document.getElementById("resultsCard").classList.remove("hidden");
+        $("resultsCard").classList.remove("hidden");
 
-        // Attach click handlers for Call buttons
         document.querySelectorAll("#rows .call-btn").forEach(btn => {
           btn.onclick = () => window.open(btn.dataset.url, "_blank");
         });
@@ -468,7 +599,7 @@
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch("/pipeline/status/" + jobId, {headers: authHeaders()});
-        if (!res.ok) { if (res.status === 401) { clearInterval(pollTimer); stateEl.textContent = "🔒 Token needed — save it above."; } return; }
+        if (!res.ok) { if (res.status === 401) { clearInterval(pollTimer); stateNote("🔒 Token needed."); } return; }
         const job = await res.json();
         renderStages(job.stages);
         if (job.log_lines.length > logCount) {
@@ -477,9 +608,9 @@
         }
         if (job.status === "done" || job.status === "failed") {
           clearInterval(pollTimer);
-          stateEl.textContent = job.status === "done"
+          stateNote(job.status === "done"
             ? "✅ Pipeline finished."
-            : "❌ Pipeline failed: " + (job.error || "unknown error");
+            : "❌ Pipeline failed: " + (job.error || "unknown error"));
           startBtn.disabled = !selectedFile;
           if (job.status === "done") showResults(job);
         }
@@ -487,14 +618,12 @@
     }, 1000);
   }
 
-  // ---- Operator assistant ----
-  const chatEl = document.getElementById("chat");
-  const assistantForm = document.getElementById("assistantForm");
-  const assistantInput = document.getElementById("assistantInput");
-  const assistantSend = document.getElementById("assistantSend");
+  /* ================= assistant chat ================= */
+  const chatEl = $("chat");
+  const assistantForm = $("assistantForm");
+  const assistantInput = $("assistantInput");
+  const assistantSend = $("assistantSend");
 
-  // One stable assistant conversation per browser tab, so follow-up
-  // actions (like reserving a carrier) reuse the same session.
   function assistantConversationId() {
     let id = sessionStorage.getItem("assistant_conv");
     if (!id) {
@@ -521,8 +650,8 @@
 
   addMessage(
     "bot",
-    "Hi! I can run metrics, carrier search, carrier reservations, reviews, " +
-    "callback scheduling, reminders, pipeline reports, and open the web call " +
+    "Hi! I am Adam. I can run metrics, search and reserve carriers, save reviews, " +
+    "schedule callbacks and reminders, prepare Excel exports, and open the web call " +
     "console for a carrier (e.g. \"call carrier 1234567\"). I never delete " +
     "data, place real phone calls, or spend money."
   );
@@ -531,10 +660,11 @@
     const message = (text || "").trim();
     if (!message) return;
 
+    closeSidebar();
     addMessage("user", message);
     assistantInput.value = "";
     assistantSend.disabled = true;
-    const pending = addMessage("bot", "Working…");
+    const pending = addMessage("bot", "…");
 
     try {
       const res = await fetch("/assistant", {
@@ -552,25 +682,24 @@
       pending.remove();
 
       if (res.status === 401 || res.status === 503) {
-        addMessage("error", "🔒 " + (body.detail || "Save your admin token above first."));
+        addMessage("error", "🔒 " + (body.detail || "Save your admin token first."));
         return;
       }
       if (!res.ok) {
         addMessage("error", "Request failed: " + (body.detail || res.status));
         return;
       }
-      addMessage(
-        body.action === "refused" ? "refused" : "bot",
-        body.reply || "(no reply)"
-      );
+      const reply = body.reply || "(no reply)";
+      addMessage(body.action === "refused" ? "refused" : "bot", reply);
+      speakReply(reply);
       // Operator asked the agent to call a carrier: open the receiver
-      // console automatically (and hand it the token via localStorage).
+      // console in a NEW TAB (unchanged behavior) and hand it the token.
       if (body.data && body.data.auto_connect_url) {
-        try { localStorage.setItem("admin_token", token); } catch {}
         addMessage(
           "bot",
           "📞 Opening the call console for the carrier — it will connect automatically."
         );
+        try { localStorage.setItem("admin_token", token()); } catch {}
         window.open(body.data.auto_connect_url, "_blank");
       }
     } catch (err) {
@@ -578,8 +707,15 @@
       addMessage("error", "Network error: " + err.message);
     } finally {
       assistantSend.disabled = false;
-      assistantInput.focus();
     }
+  }
+
+  function speakReply(text) {
+    if (!$("speakReplies").checked || !window.speechSynthesis) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.02;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
   }
 
   assistantForm.onsubmit = (e) => {
@@ -591,76 +727,135 @@
     chip.onclick = () => askAssistant(chip.dataset.msg);
   });
 
-  const exportBtn = document.getElementById("exportExcel");
-  exportBtn.onclick = async () => {
-    const status = document.getElementById("exportStatus").value;
-    const url = "/export-excel" +
-      (status ? "?review_status=" + encodeURIComponent(status) : "");
+  /* ================= voice in (admin side) ================= */
+  const micBtn = $("micBtn");
+  let recognition = null;
 
-    exportBtn.disabled = true;
-    try {
-      const res = await fetch(url, {headers: authHeaders()});
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        addMessage("error", "Export failed: " + (body.detail || res.status));
-        return;
+  micBtn.onclick = () => recognition ? stopVoice() : startVoice();
+
+  function startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      $("micHint").textContent = "⚠ This browser has no speech recognition — please type instead (Chrome works).";
+      return;
+    }
+    recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      const text = event.results[event.results.length - 1][0].transcript.trim();
+      if (text) {
+        $("micHint").textContent = "🗣 heard: " + text;
+        askAssistant(text);
       }
+    };
+    recognition.onerror = (e) => {
+      if (e.error === "not-allowed") {
+        $("micHint").textContent = "⚠ Microphone blocked — allow mic access in the browser.";
+        stopVoice();
+      }
+    };
+    recognition.onend = () => { if (recognition && micBtn.classList.contains("listening")) {
+      try { recognition.start(); } catch {}
+    }};
+    try { recognition.start(); } catch {}
+    micBtn.classList.add("listening");
+    $("micHint").textContent = "🔴 Listening… speak now. Press the mic again to stop.";
+  }
 
-      const blob = await res.blob();
-      const href = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = "carrier_leads" + (status ? "_" + status : "") + ".xlsx";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(href), 1000);
+  function stopVoice() {
+    if (recognition) {
+      try { recognition.stop(); } catch {}
+      recognition = null;
+    }
+    micBtn.classList.remove("listening");
+    $("micHint").textContent = "🎤 Press the green mic and speak. Adam answers out loud.";
+  }
 
-      addMessage(
-        "bot",
-        "Downloaded " +
-        (status ? status.replace(/_/g, " ") : "all") +
-        " carriers to Excel."
-      );
-    } catch (err) {
-      addMessage("error", "Export error: " + err.message);
-    } finally {
-      exportBtn.disabled = false;
+  // While Adam speaks their reply, pause the mic so it does not hear itself.
+  const _speakReply = speakReply;
+  speakReply = function (text) {
+    const wasListening = !!recognition;
+    if (wasListening) stopVoice();
+    _speakReply(text);
+    if (wasListening) {
+      const check = setInterval(() => {
+        if (!window.speechSynthesis || !window.speechSynthesis.speaking) {
+          clearInterval(check);
+          startVoice();
+        }
+      }, 300);
     }
   };
 
-  // ---- Scheduled tasks ----
-  const tasksTable = document.getElementById("tasksTable");
-  const tasksEmpty = document.getElementById("tasksEmpty");
-  const taskRows = document.getElementById("taskRows");
+  /* ================= Excel exports ================= */
+  document.querySelectorAll(".export-tile button").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!token()) {
+        btn.textContent = "🔒 Save token first";
+        setTimeout(() => { btn.textContent = "⬇ Download"; }, 2500);
+        return;
+      }
+      const status = btn.dataset.status;
+      const url = "/export-excel" +
+        (status ? "?review_status=" + encodeURIComponent(status) : "");
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "⏳ Preparing…";
+      try {
+        const res = await fetch(url, {headers: authHeaders()});
+        if (!res.ok) {
+          btn.textContent = "⚠ Failed";
+          setTimeout(() => { btn.textContent = label; }, 2500);
+          return;
+        }
+        const blob = await res.blob();
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = "carrier_leads" + (status ? "_" + status : "") + ".xlsx";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 1000);
+        btn.textContent = "✅ Downloaded";
+      } catch (err) {
+        btn.textContent = "⚠ " + err.message;
+      } finally {
+        setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1600);
+      }
+    };
+  });
 
+  /* ================= reminders / tasks ================= */
   async function loadTasks() {
     try {
       const res = await fetch("/tasks?limit=100", {headers: authHeaders()});
       if (!res.ok) {
         if (res.status === 401 || res.status === 503) {
-          tasksEmpty.textContent = "🔒 Save your admin token to see scheduled tasks.";
-          tasksEmpty.classList.remove("hidden");
-          tasksTable.classList.add("hidden");
+          $("tasksEmpty").textContent = "🔒 Save your admin token to see scheduled tasks.";
+          $("tasksEmpty").classList.remove("hidden");
+          $("tasksTable").classList.add("hidden");
         }
         return;
       }
 
       const body = await res.json();
       const tasks = body.tasks || [];
-      taskRows.innerHTML = "";
+      $("taskRows").innerHTML = "";
 
       if (!tasks.length) {
-        tasksEmpty.textContent =
+        $("tasksEmpty").textContent =
           "No tasks scheduled. Ask the assistant: " +
           "\"remind me to check carrier prices in 2 hours\".";
-        tasksEmpty.classList.remove("hidden");
-        tasksTable.classList.add("hidden");
+        $("tasksEmpty").classList.remove("hidden");
+        $("tasksTable").classList.add("hidden");
         return;
       }
 
-      tasksEmpty.classList.add("hidden");
-      tasksTable.classList.remove("hidden");
+      $("tasksEmpty").classList.add("hidden");
+      $("tasksTable").classList.remove("hidden");
 
       for (const task of tasks) {
         const tr = document.createElement("tr");
@@ -685,12 +880,11 @@
           const cancel = document.createElement("button");
           cancel.textContent = "Cancel";
           cancel.className = "tiny";
-          cancel.style.background = "#3a4257";
           cancel.onclick = () => setTaskStatus(task.id, "cancel");
           actions.appendChild(cancel);
         }
 
-        taskRows.appendChild(tr);
+        $("taskRows").appendChild(tr);
       }
     } catch (err) {
       // Keep the previous view if the refresh fails.
@@ -715,13 +909,15 @@
     }
   }
 
-  document.getElementById("refreshTasks").onclick = loadTasks;
+  $("refreshTasks").onclick = loadTasks;
   loadTasks();
   setInterval(loadTasks, 30000);
 
-  // Restore token if this tab already has one
-  const saved = sessionStorage.getItem("admin_token");
-  if (saved) document.getElementById("token").value = saved;
+  // Pre-fill the token box if this tab already has one
+  if (sessionStorage.getItem("admin_token")) {
+    $("token").value = sessionStorage.getItem("admin_token");
+    stateNote("Token active in this tab.");
+  }
 </script>
 </body>
 </html>

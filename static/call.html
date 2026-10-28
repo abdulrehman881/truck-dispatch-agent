@@ -107,9 +107,55 @@
   }
   .status-pill.open { background: var(--accent-soft); color: var(--accent-dark); }
   .status-pill.ended { background: #eef2ee; color: var(--muted); }
+  /* ===== Incoming call ring overlay ===== */
+  #ring {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(28, 36, 34, .35); backdrop-filter: blur(3px);
+  }
+  #ring.show { display: flex; }
+  .ringCard {
+    background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+    box-shadow: var(--shadow), 0 18px 50px rgba(20, 40, 28, .25);
+    padding: 34px 40px; text-align: center; max-width: 380px; width: 92%;
+  }
+  .ringCard .avatar {
+    width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 16px;
+    background: var(--accent-soft); border: 3px solid var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.4rem; color: #fff; background: var(--accent);
+    animation: ringPulse 1.6s infinite;
+  }
+  @keyframes ringPulse {
+    0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .5); }
+    70% { box-shadow: 0 0 0 22px rgba(22, 163, 74, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  }
+  .ringCard .caller { font-size: 1.15rem; font-weight: 700; margin-bottom: 4px; }
+  .ringCard .sub2 { color: var(--muted); font-size: .85rem; margin-bottom: 20px; }
+  .ringBtns { display: flex; gap: 14px; justify-content: center; }
+  #ringAnswer { border-radius: 999px; padding: 12px 26px; font-size: 1rem; }
+  #ringDecline { background: #eef2ee; color: var(--err); font-weight: 700; border-radius: 999px; padding: 12px 26px; font-size: 1rem; }
+  #ringDecline:hover { background: #fdeaea; }
+  .ringHint { color: var(--muted); font-size: .76rem; margin-top: 14px; }
 </style>
 </head>
 <body>
+<!-- Incoming call ring -->
+<div id="ring">
+  <div class="ringCard">
+    <div class="avatar">🤖</div>
+    <div class="caller" id="ringCaller">Agent Adam</div>
+    <div class="sub2" id="ringSub">Incoming call from the dispatch agent…</div>
+    <div class="ringBtns">
+      <button id="ringAnswer">✅ Answer</button>
+      <button id="ringDecline">❌ Decline</button>
+    </div>
+    <p class="ringHint">If you answer, the voice agent will talk to you.
+    Chat is available as a second option inside the call.</p>
+  </div>
+</div>
+
 <div class="wrap">
   <h1>📞 Agent call console <span class="read-only">read-only agent</span></h1>
   <p class="sub">Simulates an incoming carrier call. The agent talks about loads,
@@ -201,6 +247,46 @@ function tokenMissing() {
 let sessionId = null;
 let timerId = null;
 let recognition = null;
+let cameFromIncoming = false;   // true when the agent rang us and we answered
+let incomingAction = null;      // what to run if the driver accepts the ringing call
+let paramsSessionId = null;     // session id embedded in the auto-open URL
+
+// Voice agent is the DEFAULT way to talk once a call is answered;
+// the chat box stays available as the second option.
+function applyVoiceDefaults() {
+  if (!cameFromIncoming) return;
+  if ($("voiceOut")) $("voiceOut").checked = true;
+  if ($("micOn") && !$("micOn").disabled && !$("micOn").checked) {
+    $("micOn").checked = true;
+    startMic();
+  }
+}
+
+/* ===== Incoming call ring: the driver CHOOSES to answer or decline ===== */
+function showIncoming(subText) {
+  $("ringSub").textContent = subText || "Incoming call from the dispatch agent…";
+  $("ring").classList.add("show");
+}
+
+$("ringAnswer").onclick = () => {
+  $("ring").classList.remove("show");
+  cameFromIncoming = true;
+  if (incomingAction) { const act = incomingAction; incomingAction = null; act(); }
+};
+
+$("ringDecline").onclick = async () => {
+  $("ring").classList.remove("show");
+  incomingAction = null;
+  showStatus("Call declined — no conversation started.");
+  // If a server-side session was pre-created, close it so it is a missed call.
+  if (token && paramsSessionId) {
+    try {
+      await fetch("/call-sessions/" + paramsSessionId + "/end", {
+        method: "POST", headers: authHeaders(),
+      });
+    } catch { /* declined locally is enough */ }
+  }
+};
 
 async function openCall(message, isRecognized) {
   if (!token && !tokenMissing()) return;
@@ -243,6 +329,7 @@ async function openCall(message, isRecognized) {
   }
   if (body.resumed) addDivider("Previous conversation — resuming where you left off");
   addBubble("agent", body.greeting, false);
+  applyVoiceDefaults();
   speak(body.greeting);
 
   startTimer();
@@ -343,6 +430,7 @@ $("endBtn").onclick = async () => {
   $("setupCard").classList.remove("hidden");
   $("micOn").checked = false;
   stopMic();
+  cameFromIncoming = false;
   window.speechSynthesis && window.speechSynthesis.cancel();
   showStatus("Call ended. The next call with the same identity resumes.");
   loadRecent();
@@ -429,11 +517,11 @@ async function loadRecent() {
 
 loadRecent();
 
-// ==== Auto-connect on inbound agent call ====
+// ==== Agent call incoming → ring first, driver chooses to answer ====
 (function initAutoConnect() {
   const params = new URLSearchParams(window.location.search);
   const auto = params.get("auto") === "1";
-  const sessionId = params.get("session_id");
+  const session = params.get("session_id");
   const usdot = params.get("usdot");
   const phone = params.get("phone");
   const company = params.get("company");
@@ -441,23 +529,36 @@ loadRecent();
 
   if (!auto) return;
 
-  // If we have a session_id, resume that session directly
-  if (sessionId) {
-    showStatus("Auto-connecting to call session…");
-    resumeSession(sessionId);
+  const who = company || person ||
+    (usdot ? "USDOT " + usdot : phone ? phone : "Unknown carrier");
+
+  // If we have a session_id, resume that session on accept
+  if (session) {
+    paramsSessionId = session;
+    incomingAction = () => resumeSession(session);
+    showIncoming("Agent Adam is calling…");
+    // Read-only lookup so the ring shows WHO the agent is calling about.
+    fetch("/call-sessions/" + session, {headers: authHeaders()})
+      .then(r => r.ok ? r.json() : null)
+      .then(s => {
+        if (s && $("ring").classList.contains("show")) {
+          const name = s.display_name || s.company_name ||
+            (s.usdot_number ? "USDOT " + s.usdot_number : s.phone || "Unknown carrier");
+          $("ringCaller").textContent = name;
+          $("ringSub").textContent = "Agent Adam wants to talk about this call — answer or decline.";
+        }
+      });
     return;
   }
 
-  // Otherwise, start a new call with the provided identity
+  // Otherwise, start a new call with the provided identity on accept
   if (usdot || phone || company || person) {
-    showStatus("Auto-connecting to carrier…");
     if (usdot) $("fUsdot").value = usdot;
     if (phone) $("fPhone").value = phone;
     if (company) $("fCompany").value = company;
     if (person) $("fPerson").value = person;
-    // Small delay to let UI settle, then click Answer
-    setTimeout(() => $("answerBtn").click(), 150);
-    return;
+    incomingAction = () => $("answerBtn").click();
+    showIncoming("Agent Adam is calling “" + who + "”");
   }
 })();
 
@@ -513,6 +614,7 @@ async function resumeSession(targetSessionId) {
     // The transcript already contains the newest agent message (greeting
     // or continuation); only speak it, it has already been displayed.
     const lastMsg = session.transcript && session.transcript[session.transcript.length - 1];
+    applyVoiceDefaults();
     if (lastMsg && lastMsg.role === "assistant") {
       speak(lastMsg.content);
     }
