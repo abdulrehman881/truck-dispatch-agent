@@ -334,6 +334,17 @@ invalid_number, failed — covered by tests.
 > ("Auto-connected." state, timer running), driver message sent and
 > agent replied in-session. 8 new tests; full suite **198 passed /
 > 0 failed / 0 skipped** (71.9 s).
+>
+> **Call page UI restyle record (2026-10-28):** `static/call.html`
+> restyled from dark theme to a professional white-and-green look —
+> white cards/screen on a light background, green accent buttons and
+> "READ-ONLY AGENT" badge, soft green agent bubbles vs light gray driver
+> bubbles, green timer pill, amber warning highlight for refused
+> data-change requests, hover rows in Recent callers. Styling only; no
+> markup ids/behavior changed. Browser-verified a full call cycle on the
+> new theme: answer (resumed identity), driver message → read-only
+> refusal, end call → "Call ended. Summary stored." Full suite **198
+> passed / 0 failed / 0 skipped** (35.2 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
