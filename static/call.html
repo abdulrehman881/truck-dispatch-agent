@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>📞 Dispatch Agent — Call Console</title>
+<title>ðŸ“ž Dispatch Agent â€” Call Console</title>
 <style>
   :root {
     --bg: #f5f7f4; --card: #ffffff; --line: #dfe6df;
@@ -91,8 +91,26 @@
     border-top: 1px dashed #eab308; border-bottom: 1px dashed #eab308;
     padding: 6px 0; margin: 6px 0; background: #fefce8; border-radius: 6px;
   }
+  .contact-check { display: none; }
   .controls { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
   .controls input { flex: 1; }
+  #talkBtn {
+    background: var(--accent-soft); color: var(--accent-dark);
+    border: 1px solid #bfe4cf; border-radius: 999px;
+    width: 56px; height: 52px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 56px;
+  }
+  #talkBtn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #talkBtn.listening {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    animation: talkPulse 1.2s infinite;
+  }
+  @keyframes talkPulse {
+    0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); }
+    70% { box-shadow: 0 0 0 12px rgba(22, 163, 74, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  }
   .toggle { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: .82rem; }
   .toggle input { accent-color: var(--accent); width: auto; }
   /* Recent callers */
@@ -144,12 +162,12 @@
 <!-- Incoming call ring -->
 <div id="ring">
   <div class="ringCard">
-    <div class="avatar">🤖</div>
+    <div class="avatar">ADAM</div>
     <div class="caller" id="ringCaller">Agent Adam</div>
-    <div class="sub2" id="ringSub">Incoming call from the dispatch agent…</div>
+    <div class="sub2" id="ringSub">Incoming call from the dispatch agentâ€¦</div>
     <div class="ringBtns">
-      <button id="ringAnswer">✅ Answer</button>
-      <button id="ringDecline">❌ Decline</button>
+      <button id="ringAnswer">Answer</button>
+      <button id="ringDecline">Decline</button>
     </div>
     <p class="ringHint">If you answer, the voice agent will talk to you.
     Chat is available as a second option inside the call.</p>
@@ -157,7 +175,7 @@
 </div>
 
 <div class="wrap">
-  <h1>📞 Agent call console <span class="read-only">read-only agent</span></h1>
+  <h1>ðŸ“ž Agent call console <span class="read-only">read-only agent</span></h1>
   <p class="sub">Simulates an incoming carrier call. The agent talks about loads,
   remembers past conversations, and <strong>never</strong> changes any database record.</p>
 
@@ -175,8 +193,8 @@
         <input id="fPerson" placeholder="e.g. Rob Miller"></label>
     </div>
     <div class="row" style="margin-top:14px">
-      <button id="answerBtn">📲 Answer call</button>
-      <button id="endBtn" class="danger hidden">📴 End call</button>
+      <button id="answerBtn">ðŸ“² Answer call</button>
+      <button id="endBtn" class="danger hidden">ðŸ“´ End call</button>
       <label class="toggle"><input type="checkbox" id="voiceOut"> Speak agent replies</label>
       <label class="toggle"><input type="checkbox" id="micOn" disabled> Listen to my mic (Chrome)</label>
     </div>
@@ -190,7 +208,7 @@
       <div id="screen">
         <div class="head">
           <div>
-            <div class="caller-id" id="callerName">—</div>
+            <div class="caller-id" id="callerName">â€”</div>
             <div class="key-pill" id="callerKey"></div>
           </div>
           <div id="timer">00:00</div>
@@ -201,7 +219,15 @@
         </div>
         <form class="controls hidden" id="msgForm">
           <input id="msgInput" maxlength="1000"
-                 placeholder="Speak / type as the driver… e.g. I have a 53ft reefer, loads Texas to midwest">
+                 placeholder="Speak or type as the driver: e.g. I have a 53ft reefer, Texas to midwest">
+          <button id="talkBtn" type="button" title="Hands-free talking: press to start/stop the mic">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" fill="currentColor" stroke="none"></path>
+              <path d="M5 11a7 7 0 0 0 14 0"></path>
+              <line x1="12" y1="18" x2="12" y2="22"></line>
+            </svg>
+          </button>
           <button type="submit">Send</button>
         </form>
       </div>
@@ -264,7 +290,7 @@ function applyVoiceDefaults() {
 
 /* ===== Incoming call ring: the driver CHOOSES to answer or decline ===== */
 function showIncoming(subText) {
-  $("ringSub").textContent = subText || "Incoming call from the dispatch agent…";
+  $("ringSub").textContent = subText || "Incoming call from the dispatch agentâ€¦";
   $("ring").classList.add("show");
 }
 
@@ -277,7 +303,7 @@ $("ringAnswer").onclick = () => {
 $("ringDecline").onclick = async () => {
   $("ring").classList.remove("show");
   incomingAction = null;
-  showStatus("Call declined — no conversation started.");
+  showStatus("Call declined â€” no conversation started.");
   // If a server-side session was pre-created, close it so it is a missed call.
   if (token && paramsSessionId) {
     try {
@@ -290,7 +316,7 @@ $("ringDecline").onclick = async () => {
 
 async function openCall(message, isRecognized) {
   if (!token && !tokenMissing()) return;
-  showStatus("Dialing…");
+  showStatus("Dialingâ€¦");
   const res = await fetch("/call-sessions", {
     method: "POST",
     headers: authHeaders(),
@@ -303,11 +329,11 @@ async function openCall(message, isRecognized) {
   });
   if (res.status === 401) {
     token = ""; sessionStorage.removeItem("admin_token");
-    showStatus("🔒 Wrong or missing token."); return;
+    showStatus("ðŸ”’ Wrong or missing token."); return;
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    showStatus("⚠ " + (body.detail || res.status)); return;
+    showStatus("âš  " + (body.detail || res.status)); return;
   }
   const body = await res.json();
   sessionId = body.session_id;
@@ -327,7 +353,7 @@ async function openCall(message, isRecognized) {
     addBubble(item.role === "assistant" ? "agent" : "me",
               item.content, item.flagged);
   }
-  if (body.resumed) addDivider("Previous conversation — resuming where you left off");
+  if (body.resumed) addDivider("Previous conversation â€” resuming where you left off");
   addBubble("agent", body.greeting, false);
   applyVoiceDefaults();
   speak(body.greeting);
@@ -405,12 +431,12 @@ $("msgForm").onsubmit = async (event) => {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    $("setupMsg").textContent = "⚠ " + (body.detail || res.status);
+    $("setupMsg").textContent = "âš  " + (body.detail || res.status);
     return;
   }
   const body = await res.json();
   if (body.flagged) {
-    addDivider("Data-change request refused — dispatcher only");
+    addDivider("Data-change request refused â€” dispatcher only");
   }
   addBubble("agent", body.reply, false);
   speak(body.reply);
@@ -440,14 +466,32 @@ $("micOn").onchange = (event) => {
   event.target.checked ? startMic() : stopMic();
 };
 
+// Big round Talk button on the phone screen does the same as the mic toggle.
+$("talkBtn").onclick = () => {
+  if (micActive) stopMic();
+  else { $("micOn").checked = true; startMic(); }
+};
+
+let micActive = false;   // true while the mic is supposed to be on
+
 function startMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
+    micActive = false;
     $("micOn").checked = false;
     $("micOn").disabled = true;
-    showStatus("This browser doesn't support speech recognition — type instead.");
+    updateTalkBtn();
+    showStatus("This browser doesn't support speech recognition - type instead (Chrome works).");
     return;
   }
+  micActive = true;
+  buildRecognition();
+  updateTalkBtn();
+  try { recognition.start(); } catch { /* already started */ }
+}
+
+function buildRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SR();
   recognition.continuous = true;
   recognition.interimResults = false;
@@ -456,12 +500,32 @@ function startMic() {
     const text = event.results[event.results.length - 1][0].transcript.trim();
     if (text) { $("msgInput").value = text; $("msgForm").requestSubmit(); }
   };
-  recognition.onerror = () => { $("micOn").checked = false; };
-  try { recognition.start(); } catch { /* already started */ }
+  recognition.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      micActive = false;
+      $("micOn").checked = false;
+      updateTalkBtn();
+      showStatus("Microphone blocked - allow mic access in the browser, then press the Talk button.");
+    }
+    // other errors (no-speech / network / aborted) retry through onend
+  };
+  recognition.onend = () => {
+    if (micActive) {
+      try { recognition && recognition.start(); } catch {}
+    }
+  };
 }
 
 function stopMic() {
+  micActive = false;
   if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
+  $("micOn").checked = false;
+  updateTalkBtn();
+}
+
+function updateTalkBtn() {
+  const btn = $("talkBtn");
+  if (btn) btn.classList.toggle("listening", micActive);
 }
 
 function logEvent(text) {
@@ -507,7 +571,7 @@ async function loadRecent() {
         $("fPhone").value = s.phone || "";
         $("fCompany").value = s.company_name || "";
         $("fPerson").value = s.display_name || "";
-        showStatus("Identity prefilled — press Answer to call back.");
+        showStatus("Identity prefilled â€” press Answer to call back.");
         $("fUsdot").focus();
       };
       rows.appendChild(tr);
@@ -517,7 +581,7 @@ async function loadRecent() {
 
 loadRecent();
 
-// ==== Agent call incoming → ring first, driver chooses to answer ====
+// ==== Agent call incoming â†’ ring first, driver chooses to answer ====
 (function initAutoConnect() {
   const params = new URLSearchParams(window.location.search);
   const auto = params.get("auto") === "1";
@@ -536,7 +600,7 @@ loadRecent();
   if (session) {
     paramsSessionId = session;
     incomingAction = () => resumeSession(session);
-    showIncoming("Agent Adam is calling…");
+    showIncoming("Agent Adam is callingâ€¦");
     // Read-only lookup so the ring shows WHO the agent is calling about.
     fetch("/call-sessions/" + session, {headers: authHeaders()})
       .then(r => r.ok ? r.json() : null)
@@ -545,7 +609,7 @@ loadRecent();
           const name = s.display_name || s.company_name ||
             (s.usdot_number ? "USDOT " + s.usdot_number : s.phone || "Unknown carrier");
           $("ringCaller").textContent = name;
-          $("ringSub").textContent = "Agent Adam wants to talk about this call — answer or decline.";
+          $("ringSub").textContent = "Agent Adam wants to talk about this call â€” answer or decline.";
         }
       });
     return;
@@ -558,7 +622,7 @@ loadRecent();
     if (company) $("fCompany").value = company;
     if (person) $("fPerson").value = person;
     incomingAction = () => $("answerBtn").click();
-    showIncoming("Agent Adam is calling “" + who + "”");
+    showIncoming("Agent Adam is calling â€œ" + who + "â€");
   }
 })();
 
@@ -571,18 +635,18 @@ async function resumeSession(targetSessionId) {
     if (res.status === 401) {
       token = "";
       sessionStorage.removeItem("admin_token");
-      showStatus("🔒 Session requires admin token."); return;
+      showStatus("ðŸ”’ Session requires admin token."); return;
     }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      showStatus("⚠ " + (body.detail || res.status)); return;
+      showStatus("âš  " + (body.detail || res.status)); return;
     }
     const session = await res.json();
 
     // An already-ended session cannot take messages: start a fresh call
     // with the same identity instead.
     if (session.status !== "open") {
-      showStatus("Session already ended — starting a fresh call.");
+      showStatus("Session already ended â€” starting a fresh call.");
       $("fUsdot").value = session.usdot_number || "";
       $("fPhone").value = session.phone || "";
       $("fCompany").value = session.company_name || "";
@@ -609,7 +673,7 @@ async function resumeSession(targetSessionId) {
                 item.content, item.flagged);
     }
     if (session.resumed_from) {
-      addDivider("Previous conversation — resuming where you left off");
+      addDivider("Previous conversation â€” resuming where you left off");
     }
     // The transcript already contains the newest agent message (greeting
     // or continuation); only speak it, it has already been displayed.
@@ -623,7 +687,7 @@ async function resumeSession(targetSessionId) {
     showStatus("Auto-connected.");
     $("msgInput").focus();
   } catch (err) {
-    showStatus("⚠ Auto-connect failed: " + err.message);
+    showStatus("âš  Auto-connect failed: " + err.message);
   }
 }
 </script>

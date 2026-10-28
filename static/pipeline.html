@@ -41,15 +41,16 @@
   #menuBtn {
     background: var(--accent-soft); color: var(--accent-dark);
     border: 1px solid #bfe4cf; border-radius: 10px;
-    font-size: 1.15rem; width: 44px; height: 42px;
-    display: flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    padding: 0;
   }
   #menuBtn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
   .topbar .brand { font-weight: 700; font-size: 1.05rem; }
   .topbar .brand small { color: var(--muted); font-weight: 400; }
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
-    width: 270px; background: var(--panel);
+    width: 290px; background: var(--panel);
     border-right: 1px solid var(--border);
     box-shadow: var(--shadow);
     transform: translateX(-102%);
@@ -58,9 +59,19 @@
     padding: 16px 12px;
   }
   .sidebar.open { transform: translateX(0); }
+  .side-token { padding: 4px 6px 14px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .side-token span {
+    display: block; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--muted); font-weight: 700; margin-bottom: 7px;
+  }
+  .side-token input {
+    width: 100%; margin-bottom: 7px;
+  }
+  .side-token button { padding: 7px 16px; font-size: .85rem; }
+  .side-token .tokstate { color: var(--muted); font-size: .78rem; margin-top: 6px; }
   .sidebar h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 6px 6px 10px; }
   .side-link {
-    display: flex; align-items: center; gap: 12px;
+    display: flex; align-items: center; gap: 10px;
     background: none; border: none; color: var(--text);
     text-align: left; font: inherit; font-weight: 600;
     border-radius: 10px; padding: 11px 12px; margin-bottom: 3px; cursor: pointer;
@@ -68,8 +79,8 @@
   }
   .side-link:hover { background: var(--accent-soft); color: var(--accent-dark); }
   .side-link.active { background: var(--accent-soft); color: var(--accent-dark); }
-  .side-link .ico { font-size: 1.1rem; width: 22px; text-align: center; }
-  .side-note { margin: 8px 6px 0; color: var(--muted); font-size: .78rem; line-height: 1.4; }
+  .side-link b { font-weight: 700; }
+  .side-note { margin: 10px 6px 0; color: var(--muted); font-size: .78rem; line-height: 1.4; }
   .side-foot { margin-top: auto; }
   .overlayish {
     position: fixed; inset: 0; z-index: 50; background: rgba(28, 36, 34, .18);
@@ -178,18 +189,28 @@
   .stat .num { font-size: 1.4rem; font-weight: 700; color: var(--accent-dark); }
   .stat .lbl { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
   .hidden { display: none; }
-  /* assistant chat */
-  .assistant .chat {
-    display: flex; flex-direction: column; gap: 10px;
-    max-height: 420px; min-height: 260px; overflow-y: auto; padding: 4px 2px;
+  /* ===== open chat (no box) ===== */
+  .open-chat { padding: 0 6px; }
+  .open-chat .chat {
+    display: flex; flex-direction: column; gap: 12px;
+    max-height: 52vh; min-height: 220px; overflow-y: auto;
+    padding: 8px 4px 18px;
   }
+  .open-chat .chat-title {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 4px;
+  }
+  .open-chat .chat-title h2 { margin: 0; font-size: 1.05rem; }
   .msg {
-    max-width: 88%; padding: 10px 13px; border-radius: 12px;
-    font-size: .93rem; line-height: 1.45; white-space: pre-wrap;
+    max-width: 88%; padding: 10px 14px; border-radius: 14px;
+    font-size: .95rem; line-height: 1.5; white-space: pre-wrap;
     word-break: break-word;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
   }
-  .msg.user { align-self: flex-end; background: var(--accent-soft); border: 1px solid #bfe4cf; }
-  .msg.bot { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border); }
+  .msg.user { align-self: flex-end; background: var(--accent-soft); border-color: #bfe4cf; }
+  .msg.bot { align-self: flex-start; background: var(--panel); }
   .msg.refused { border-color: #f3d5a3; background: #fdf6e8; color: var(--warn); }
   .msg.error { border-color: #f2c4c4; background: #fdf1f1; color: var(--err); }
   .msg .who {
@@ -197,12 +218,14 @@
     letter-spacing: .06em; color: var(--accent-dark); margin-bottom: 4px; font-weight: 700;
   }
   .msg.refused .who, .msg.error .who { color: inherit; }
-  .assistant-row { display: flex; gap: 10px; margin-top: 14px; }
+  .assistant-row { display: flex; gap: 10px; margin-top: 10px; }
   .assistant-row input { flex: 1; }
   #micBtn {
-    background: var(--accent-soft); color: var(--accent-dark);
-    border: 1px solid #bfe4cf; border-radius: 9px;
-    padding: 10px 16px; font-size: 1.05rem;
+    background: var(--panel-2); color: var(--accent-dark);
+    border: 1px solid var(--border); border-radius: 999px;
+    width: 52px; height: 48px;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0;
   }
   #micBtn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
   #micBtn.listening {
@@ -211,10 +234,10 @@
   }
   @keyframes pulse {
     0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); }
-    70% { box-shadow: 0 0 0 10px rgba(22, 163, 74, 0); }
+    70% { box-shadow: 0 0 0 12px rgba(22, 163, 74, 0); }
     100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
   }
-  .mic-hint { color: var(--muted); font-size: .8rem; margin-top: 8px; }
+  .mic-hint { color: var(--muted); font-size: .82rem; margin-top: 8px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .chip {
     background: #ffffff; border: 1px solid var(--border);
@@ -254,40 +277,48 @@
 <body>
 
 <div class="topbar">
-  <button id="menuBtn" type="button" title="Menu">☰</button>
-  <div class="brand">🚛 TruckDispatchAgent <small>operator console</small></div>
+  <button id="menuBtn" type="button" title="Menu" aria-label="Menu">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <line x1="3" y1="5" x2="17" y2="5"></line>
+      <line x1="3" y1="10" x2="17" y2="10"></line>
+      <line x1="3" y1="15" x2="17" y2="15"></line>
+    </svg>
+  </button>
+  <div class="brand">TruckDispatchAgent <small>operator console</small></div>
 </div>
 
 <div class="overlayish" id="overlay"></div>
 
 <nav class="sidebar" id="sidebar">
+  <div class="side-token">
+    <span>Admin token</span>
+    <input id="token" type="password" placeholder="Paste your admin token">
+    <button id="saveToken">Save</button>
+    <div class="tokstate" id="tokenState">Kept in this tab only.</div>
+  </div>
   <h2>Functions</h2>
-  <button class="side-link active" data-view="chat"><span class="ico">💬</span> Agent chat &amp; voice</button>
-  <button class="side-link" data-view="pipeline"><span class="ico">📄</span> Upload carrier PDF</button>
-  <button class="side-link" data-view="exports"><span class="ico">📈</span> Excel files</button>
-  <button class="side-link" data-view="reminders"><span class="ico">🗓</span> Reminders &amp; schedules</button>
-  <p class="side-note">Chat is on the main page. Use the 🎤 button to talk to the agent out loud.</p>
+  <button class="side-link active" data-view="chat">Agent chat &amp; voice</button>
+  <button class="side-link" data-view="pipeline">Upload carrier PDF</button>
+  <button class="side-link" data-view="exports">Excel files</button>
+  <button class="side-link" data-view="reminders">Reminders &amp; schedules</button>
+  <p class="side-note">The chat is on the main page. Press the Talk button and speak to the agent out loud.</p>
   <div class="side-foot">
-    <p class="side-note">Calls to carriers always open the receiver console in a new tab — unchanged.</p>
+    <p class="side-note">Calls to carriers open the receiver console in a new tab.</p>
   </div>
 </nav>
 
 <div class="wrap">
-  <h1>🤖 Talk to Adam — your dispatch agent</h1>
-  <p class="sub">Voice first: press 🎤 and speak. Chat is there as a second option.
-  Use the ☰ sidebar for files, PDF upload and reminders.</p>
+  <h1>Talk to Adam, your dispatch agent</h1>
+  <p class="sub">Voice first: press the round Talk button and speak. Chat is there as a
+  second option. The sidebar has files, PDF upload and reminders.</p>
 
-  <!-- ============ VIEW: CHAT (main) ============ -->
+  <!-- ============ VIEW: CHAT (main, open space) ============ -->
   <section class="view active" id="view-chat">
-    <div class="card assistant">
-      <div class="tasks-head">
-        <h2 style="margin:0;font-size:1.1rem">Adam — operator assistant</h2>
-        <label class="opt"><input type="checkbox" id="speakReplies" checked> 🔊 Speak his replies</label>
-      </div>
-      <div class="row muted" style="display:flex;gap:12px;align-items:center;margin:10px 0 12px;flex-wrap:wrap;font-size:.9rem">
-        <input id="token" type="password" placeholder="Admin token (kept in this tab only)" size="30">
-        <button id="saveToken" style="padding:8px 14px" class="tiny">Save token</button>
-        <span class="muted" id="uploadState" style="font-size:.9rem"></span>
+    <div class="open-chat">
+      <div class="chat-title">
+        <h2>Adam, the operator assistant</h2>
+        <label class="opt"><input type="checkbox" id="speakReplies" checked> Speak replies out loud</label>
       </div>
       <div class="chat" id="chat"></div>
       <div class="chips" id="chips">
@@ -301,19 +332,26 @@
       <form class="assistant-row" id="assistantForm">
         <input id="assistantInput" type="text" maxlength="1000"
                placeholder="Ask Adam… e.g. show metrics, call carrier 1234567">
-        <button id="micBtn" type="button" title="Talk to Adam with your voice">🎤</button>
+        <button id="micBtn" type="button" title="Talk to Adam with your voice">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" fill="currentColor" stroke="none"></path>
+            <path d="M5 11a7 7 0 0 0 14 0"></path>
+            <line x1="12" y1="18" x2="12" y2="22"></line>
+          </svg>
+        </button>
         <button id="assistantSend" type="submit">Send</button>
       </form>
-      <p class="mic-hint" id="micHint">🎤 Press the green mic and speak. Adam answers out loud.</p>
+      <p class="mic-hint" id="micHint">Press the green mic and speak. Adam answers out loud and keeps listening.</p>
     </div>
   </section>
 
   <!-- ============ VIEW: PIPELINE UPLOAD ============ -->
   <section class="view" id="view-pipeline">
     <div class="card">
-      <h2 style="margin:0 0 12px;font-size:1.15rem">📄 Upload carrier PDF</h2>
+      <h2 style="margin:0 0 12px;font-size:1.15rem">Upload carrier PDF</h2>
       <div id="drop" class="drop">
-        <strong>Drag &amp; drop the carrier PDF here</strong><br>
+        <strong>Drag and drop the carrier PDF here</strong><br>
         or click to choose a file
         <input id="file" type="file" accept=".pdf,application/pdf" class="hidden">
       </div>
@@ -352,29 +390,29 @@
   <!-- ============ VIEW: EXPORTS ============ -->
   <section class="view" id="view-exports">
     <div class="card">
-      <h2 style="margin:0 0 6px;font-size:1.15rem">📈 Excel files</h2>
+      <h2 style="margin:0 0 6px;font-size:1.15rem">Excel files</h2>
       <p class="muted" style="margin:0 0 16px;font-size:.9rem">
         One click downloads the carrier list as Excel. Nothing else is changed.</p>
       <div class="export-grid">
         <div class="export-tile">
           <b>Interested carriers</b><small>Everyone who agreed to hear more — your hot list.</small>
-          <button data-status="interested">⬇ Download</button>
+          <button data-status="interested">Download</button>
         </div>
         <div class="export-tile">
           <b>Callback requested</b><small>Carriers who asked you to call later.</small>
-          <button data-status="callback_requested">⬇ Download</button>
+          <button data-status="callback_requested">Download</button>
         </div>
         <div class="export-tile">
           <b>Not interested</b><small>Declined — kept for records, not called again.</small>
-          <button data-status="not_interested">⬇ Download</button>
+          <button data-status="not_interested">Download</button>
         </div>
         <div class="export-tile">
           <b>Do not contact</b><small>Opt-outs. Respecting these is required by law.</small>
-          <button data-status="do_not_contact">⬇ Download</button>
+          <button data-status="do_not_contact">Download</button>
         </div>
         <div class="export-tile">
           <b>All leads</b><small>Complete list with every status.</small>
-          <button data-status="">⬇ Download</button>
+          <button data-status="">Download</button>
         </div>
       </div>
     </div>
@@ -384,7 +422,7 @@
   <section class="view" id="view-reminders">
     <div class="card" id="tasksCard">
       <div class="tasks-head">
-        <h2 style="font-size:1.15rem;margin:0">🗓 Reminders &amp; schedules</h2>
+        <h2 style="font-size:1.15rem;margin:0">Reminders and schedules</h2>
         <button id="refreshTasks" type="button" style="padding:7px 14px">Refresh</button>
       </div>
       <p class="muted" style="margin:6px 0 14px;font-size:.88rem">
@@ -430,14 +468,14 @@
   });
 
   /* ================= auth ================= */
-  function token() { return sessionStorage.getItem("admin_token") || ""; }
+  function tokenVal() { return sessionStorage.getItem("admin_token") || ""; }
   function authHeaders() {
-    const t = token();
+    const t = tokenVal();
     return t ? {"Authorization": "Bearer " + t} : {};
   }
   $("saveToken").onclick = () => {
     sessionStorage.setItem("admin_token", $("token").value.trim());
-    $("uploadState").textContent = "Token saved for this tab.";
+    $("tokenState").textContent = "Token saved for this tab.";
     loadTasks();
   };
 
@@ -446,6 +484,7 @@
   const fileEl = $("file");
   const fileName = $("fileName");
   const startBtn = $("start");
+  const stateEl = $("tokenState");
   let selectedFile = null;
   let pollTimer = null;
 
@@ -461,11 +500,11 @@
 
   function pickFile(f) {
     if (!f.name.toLowerCase().endsWith(".pdf")) {
-      fileName.textContent = "⚠ Please choose a PDF file";
+      fileName.textContent = "Please choose a PDF file";
       fileName.style.color = "var(--err)";
       selectedFile = null;
     } else {
-      fileName.textContent = "📄 " + f.name + " (" + (f.size/1024).toFixed(0) + " KB)";
+      fileName.textContent = f.name + " (" + (f.size/1024).toFixed(0) + " KB)";
       fileName.style.color = "var(--ok)";
       selectedFile = f;
     }
@@ -474,9 +513,9 @@
 
   startBtn.onclick = async () => {
     if (!selectedFile) return;
-    if (!token()) { stateNote("🔒 Save your admin token first (sidebar → chat)."); return; }
+    if (!tokenVal()) { tokenNote("Save your admin token first (open the sidebar)."); return; }
     startBtn.disabled = true;
-    stateNote("Uploading…");
+    tokenNote("Uploading…");
 
     const form = new FormData();
     form.append("file", selectedFile);
@@ -487,26 +526,26 @@
       const res = await fetch("/pipeline/upload", {method: "POST", headers: authHeaders(), body: form});
       const body = await res.json().catch(() => ({}));
       if (res.status === 401 || res.status === 503) {
-        stateNote("🔒 " + (body.detail || "Admin token required — save it in the chat page."));
+        tokenNote(body.detail || "Admin token required — save it in the sidebar first.");
         startBtn.disabled = false;
         return;
       }
       if (!res.ok) {
-        stateNote("Upload failed: " + (body.detail || res.status));
+        tokenNote("Upload failed: " + (body.detail || res.status));
         startBtn.disabled = false;
         return;
       }
-      stateNote("Pipeline running (job " + body.job_id + ")…");
+      tokenNote("Pipeline running (job " + body.job_id + ")…");
       $("progressCard").classList.remove("hidden");
       $("resultsCard").classList.add("hidden");
       watch(body.job_id);
     } catch (err) {
-      stateNote("Upload error: " + err.message);
+      tokenNote("Upload error: " + err.message);
       startBtn.disabled = false;
     }
   };
 
-  function stateNote(text) { $("uploadState").textContent = text; }
+  function tokenNote(text) { stateEl.textContent = text; }
 
   const STAGE_ORDER = ["extract", "prepare", "verify", "qualify", "import"];
   const stageEls = {};
@@ -579,7 +618,7 @@
             "<td>" + esc(l.lead_score) + "</td>" +
             '<td class="prio ' + esc(l.priority) + '">' + esc(l.priority) + "</td>" +
             "<td>" + esc((l.review_reasons || []).join(", ")) + "</td>" +
-            '<td><button class="tiny call-btn" data-url="' + esc(callUrl) + '" title="Open call console for this carrier">📞 Call</button></td>';
+            '<td><button class="tiny call-btn" data-url="' + esc(callUrl) + '" title="Open call console for this carrier">Call</button></td>';
           tbody.appendChild(tr);
         }
         if (!leads.length) {
@@ -599,7 +638,7 @@
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch("/pipeline/status/" + jobId, {headers: authHeaders()});
-        if (!res.ok) { if (res.status === 401) { clearInterval(pollTimer); stateNote("🔒 Token needed."); } return; }
+        if (!res.ok) { if (res.status === 401) { clearInterval(pollTimer); tokenNote("Token needed."); } return; }
         const job = await res.json();
         renderStages(job.stages);
         if (job.log_lines.length > logCount) {
@@ -608,9 +647,9 @@
         }
         if (job.status === "done" || job.status === "failed") {
           clearInterval(pollTimer);
-          stateNote(job.status === "done"
-            ? "✅ Pipeline finished."
-            : "❌ Pipeline failed: " + (job.error || "unknown error"));
+          tokenNote(job.status === "done"
+            ? "Pipeline finished."
+            : "Pipeline failed: " + (job.error || "unknown error"));
           startBtn.disabled = !selectedFile;
           if (job.status === "done") showResults(job);
         }
@@ -638,7 +677,7 @@
     div.className = "msg " + kind;
     const who = document.createElement("span");
     who.className = "who";
-    who.textContent = kind === "user" ? "You" : "Assistant";
+    who.textContent = kind === "user" ? "You" : "Adam";
     const body = document.createElement("span");
     body.textContent = text;
     div.appendChild(who);
@@ -652,8 +691,8 @@
     "bot",
     "Hi! I am Adam. I can run metrics, search and reserve carriers, save reviews, " +
     "schedule callbacks and reminders, prepare Excel exports, and open the web call " +
-    "console for a carrier (e.g. \"call carrier 1234567\"). I never delete " +
-    "data, place real phone calls, or spend money."
+    "console for a carrier (\"call carrier 1234567\"). I never delete data, " +
+    "place real phone calls, or spend money. Press the Talk button and just speak."
   );
 
   async function askAssistant(text) {
@@ -664,6 +703,7 @@
     addMessage("user", message);
     assistantInput.value = "";
     assistantSend.disabled = true;
+    micBtn.disabled = true;
     const pending = addMessage("bot", "…");
 
     try {
@@ -682,7 +722,7 @@
       pending.remove();
 
       if (res.status === 401 || res.status === 503) {
-        addMessage("error", "🔒 " + (body.detail || "Save your admin token first."));
+        addMessage("error", body.detail || "Save your admin token first (sidebar).");
         return;
       }
       if (!res.ok) {
@@ -697,9 +737,9 @@
       if (body.data && body.data.auto_connect_url) {
         addMessage(
           "bot",
-          "📞 Opening the call console for the carrier — it will connect automatically."
+          "Opening the call console for the carrier — it will connect automatically."
         );
-        try { localStorage.setItem("admin_token", token()); } catch {}
+        try { localStorage.setItem("admin_token", tokenVal()); } catch {}
         window.open(body.data.auto_connect_url, "_blank");
       }
     } catch (err) {
@@ -707,6 +747,7 @@
       addMessage("error", "Network error: " + err.message);
     } finally {
       assistantSend.disabled = false;
+      micBtn.disabled = false;
     }
   }
 
@@ -727,74 +768,95 @@
     chip.onclick = () => askAssistant(chip.dataset.msg);
   });
 
-  /* ================= voice in (admin side) ================= */
+  /* ================= voice: admin speaks, agent listens ================= */
   const micBtn = $("micBtn");
   let recognition = null;
+  let wantListening = false;   // true while the round button is active
+  let selfMuted = false;       // true while Adam is speaking his reply
 
-  micBtn.onclick = () => recognition ? stopVoice() : startVoice();
+  micBtn.onclick = () => {
+    if (wantListening) stopVoice();
+    else startVoice();
+  };
 
   function startVoice() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      $("micHint").textContent = "⚠ This browser has no speech recognition — please type instead (Chrome works).";
+      $("micHint").textContent = "This browser has no speech recognition — please type instead (Chrome works).";
       return;
     }
+    wantListening = true;
+    buildRecognition();
+    if (!recognition) return;
+    try { recognition.start(); } catch {}
+    micBtn.classList.add("listening");
+    $("micHint").textContent = "Listening now — speak any time. Press the button again to stop.";
+  }
+
+  function buildRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = "en-US";
     recognition.onresult = (event) => {
+      if (selfMuted || !wantListening) return;
       const text = event.results[event.results.length - 1][0].transcript.trim();
       if (text) {
-        $("micHint").textContent = "🗣 heard: " + text;
+        $("micHint").textContent = "Heard: " + text;
         askAssistant(text);
       }
     };
     recognition.onerror = (e) => {
-      if (e.error === "not-allowed") {
-        $("micHint").textContent = "⚠ Microphone blocked — allow mic access in the browser.";
-        stopVoice();
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        wantListening = false;
+        micBtn.classList.remove("listening");
+        $("micHint").textContent = "Microphone blocked — allow mic access in the browser, then press the button again.";
+      }
+      // temporary errors (no-speech, network, aborted) are retried by onend
+    };
+    recognition.onend = () => {
+      if (wantListening && !selfMuted) {
+        try { recognition.start(); } catch {}
       }
     };
-    recognition.onend = () => { if (recognition && micBtn.classList.contains("listening")) {
-      try { recognition.start(); } catch {}
-    }};
-    try { recognition.start(); } catch {}
-    micBtn.classList.add("listening");
-    $("micHint").textContent = "🔴 Listening… speak now. Press the mic again to stop.";
   }
 
   function stopVoice() {
+    wantListening = false;
     if (recognition) {
       try { recognition.stop(); } catch {}
       recognition = null;
     }
     micBtn.classList.remove("listening");
-    $("micHint").textContent = "🎤 Press the green mic and speak. Adam answers out loud.";
+    $("micHint").textContent = "Press the green mic and speak. Adam answers out loud and keeps listening.";
   }
 
-  // While Adam speaks their reply, pause the mic so it does not hear itself.
-  const _speakReply = speakReply;
+  // While Adam speaks a reply, lift the mic briefly so it does not hear itself.
+  const baseSpeakReply = speakReply;
   speakReply = function (text) {
-    const wasListening = !!recognition;
-    if (wasListening) stopVoice();
-    _speakReply(text);
-    if (wasListening) {
-      const check = setInterval(() => {
-        if (!window.speechSynthesis || !window.speechSynthesis.speaking) {
-          clearInterval(check);
-          startVoice();
+    if (!wantListening) { baseSpeakReply(text); return; }
+    selfMuted = true;
+    try { recognition && recognition.stop(); } catch {}
+    baseSpeakReply(text);
+    const waitDone = setInterval(() => {
+      if (!window.speechSynthesis || !window.speechSynthesis.speaking) {
+        clearInterval(waitDone);
+        selfMuted = false;
+        if (wantListening) {
+          if (!recognition) buildRecognition();
+          try { recognition.start(); } catch {}
         }
-      }, 300);
-    }
+      }
+    }, 300);
   };
 
   /* ================= Excel exports ================= */
   document.querySelectorAll(".export-tile button").forEach((btn) => {
     btn.onclick = async () => {
-      if (!token()) {
-        btn.textContent = "🔒 Save token first";
-        setTimeout(() => { btn.textContent = "⬇ Download"; }, 2500);
+      if (!tokenVal()) {
+        btn.textContent = "Save your token first";
+        setTimeout(() => { btn.textContent = "Download"; }, 2500);
         return;
       }
       const status = btn.dataset.status;
@@ -802,11 +864,11 @@
         (status ? "?review_status=" + encodeURIComponent(status) : "");
       const label = btn.textContent;
       btn.disabled = true;
-      btn.textContent = "⏳ Preparing…";
+      btn.textContent = "Preparing…";
       try {
         const res = await fetch(url, {headers: authHeaders()});
         if (!res.ok) {
-          btn.textContent = "⚠ Failed";
+          btn.textContent = "Failed";
           setTimeout(() => { btn.textContent = label; }, 2500);
           return;
         }
@@ -819,9 +881,9 @@
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(href), 1000);
-        btn.textContent = "✅ Downloaded";
+        btn.textContent = "Downloaded";
       } catch (err) {
-        btn.textContent = "⚠ " + err.message;
+        btn.textContent = "Failed: " + err.message;
       } finally {
         setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1600);
       }
@@ -834,7 +896,7 @@
       const res = await fetch("/tasks?limit=100", {headers: authHeaders()});
       if (!res.ok) {
         if (res.status === 401 || res.status === 503) {
-          $("tasksEmpty").textContent = "🔒 Save your admin token to see scheduled tasks.";
+          $("tasksEmpty").textContent = "Save your admin token (sidebar) to see scheduled tasks.";
           $("tasksEmpty").classList.remove("hidden");
           $("tasksTable").classList.add("hidden");
         }
@@ -916,7 +978,7 @@
   // Pre-fill the token box if this tab already has one
   if (sessionStorage.getItem("admin_token")) {
     $("token").value = sessionStorage.getItem("admin_token");
-    stateNote("Token active in this tab.");
+    tokenNote("Token active in this tab.");
   }
 </script>
 </body>

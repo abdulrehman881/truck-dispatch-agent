@@ -382,6 +382,29 @@ invalid_number, failed — covered by tests.
 > ended. Pipeline page verified: sidebar open/close, four views switch in
 > the same tab, assistant answered "Show metrics" live (487 leads). Full
 > suite **198 passed / 0 failed / 0 skipped** (61.2 s).
+>
+> **Voice-duplex + open chat + no-emoji pass (2026-10-28):** three UI
+> fixes, backend untouched. (1) Driver can now talk BACK hands-free: the
+> phone screen gained a round Talk button (mic SVG, green pulse while
+> live) answering the same engine — continuous recognition that
+> auto-restarts on no-speech/network/aborted errors, submits on the final
+> result, and shows plain instructions when the browser denies the mic
+> (automation browser denied it; verified the clear hint appears). The
+> operator-side 🎤 mic on /pipeline was rebuilt the same way: wantListening
+> flag, onend restart loop, and the mic lifts itself while Adam's reply is
+> being spoken so it never hears its own voice. (2) The chatbot moved out
+> of its card into open space on the main page
+> (`#view-chat .open-chat`, no card/box around the transcript).
+> (3) All emojis removed from both pages (titles, buttons, chips, tiles,
+> ring avatar is "ADAM"); the hamburger is an inline SVG; the admin token
+> input moved to the top of the sidebar with its own section. Verified
+> byte-clean: scan shows zero emoji chars in call.html and pipeline.html.
+> Live browser checks: token box inside sidebar, cardless chat, SVG mic
+> button, no emoji strings, assistant answered "Show metrics" (487
+> leads); outbound session (call_f1a6c5d2…, caller "Export Group") rang,
+> answered → voice-first defaults on, Talk button present with mic-block
+> hint, call ended. Full suite **198 passed / 0 failed / 0 skipped**
+> (70.9 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
