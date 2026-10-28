@@ -126,7 +126,7 @@ provides a simulated call console where you can "answer" carrier calls.
   tab; the page auto-connects that session (`?session_id=...&auto=1`,
   or identity params `usdot/company/phone/person` + `auto=1`). If the
   session already ended, the page starts a fresh call with the same
-  identity. The pipeline results table also has a per-lead **📞 Call**
+  identity. The pipeline results table also has a per-lead ** Call**
   button, and `POST /call-sessions/outbound` builds the auto URL direct.
 
 
