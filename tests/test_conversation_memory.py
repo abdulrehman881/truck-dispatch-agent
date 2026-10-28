@@ -66,8 +66,13 @@ def test_other_conversations_are_untouched():
 
 def test_expired_conversation_clears_carrier_marker(monkeypatch):
     _seed("conv-expired", carrier="5555555")
-    # Force the entry far into the past.
-    main.conversation_histories["conv-expired"]["last_active"] = 0.0
+    # Force the entry far into the past, independent of system uptime
+    # (boot-relative monotonic clocks must not affect this test).
+    import time as _time
+
+    main.conversation_histories["conv-expired"]["last_active"] = (
+        _time.monotonic() - main.HISTORY_TTL_SECONDS - 99.0
+    )
 
     history = main.get_history("conv-expired")
 
