@@ -1623,6 +1623,87 @@ def _greeting_for(session, resumed, transcript) -> str:
     )
 
 
+def _shorten_call_reply(reply: str, max_sentences: int = 2) -> str:
+    """Force phone-style brevity: at most `max_sentences` sentences.
+
+    The model tends to ramble; on a phone call the driver stops listening
+    after the second sentence, so we keep the first two and drop the rest.
+    """
+    text = " ".join(str(reply or "").split())
+    if not text:
+        return text
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    if len(sentences) <= max_sentences:
+        return text
+    kept = " ".join(sentences[:max_sentences]).strip()
+    if kept[-1] not in ".!?":
+        kept += "."
+    return kept
+
+
+_CALL_EQUIPMENT_TERMS = (
+    "reefer", "dry van", "flatbed", "step deck", "hotshot",
+    "box truck", "sprinter van", "tanker", "gooseneck", "conestoga",
+    "lowboy", "power only", "straight truck", "car hauler",
+)
+
+
+def derive_call_profile(messages) -> dict:
+    """Pull a structured carrier profile out of the driver's own words.
+
+    Returns {"equipment": [...], "trailer_lengths": [...], "lanes": [...]}.
+    Everything comes from regex on what the driver actually said — nothing
+    is invented.
+    """
+    driver_text = " ".join(
+        str(item.get("content", ""))
+        for item in messages
+        if item.get("role") == "user"
+    ).lower()
+
+    equipment = sorted({term for term in _CALL_EQUIPMENT_TERMS
+                        if term in driver_text})
+    lengths = sorted({m.group(1) + "ft" for m in
+                      re.finditer(
+                          r"\b(48|53|26|40|45)\s?(?:ft|feet|foot)\b",
+                          driver_text,
+                      )})
+    lanes = []
+    # Words drivers say after a destination ("to Texas as well",
+    # "to Chicago next week") are not place names.
+    _LANE_STOP = {
+        "as", "well", "and", "also", "then", "next", "this", "that",
+        "week", "today", "tomorrow", "for", "with", "from", "to",
+        "sometimes", "there", "here",
+    }
+
+    def _place(segment):
+        words = []
+        for token in segment.split():
+            if token in _LANE_STOP or len(words) == 3:
+                break
+            words.append(token)
+        return " ".join(words)
+
+    for m in re.finditer(
+        r"\bfrom\s+([a-z \'.]{2,28}?)\s+to\s+([a-z \'.]{2,28}?)"
+        r"(?=\s*[.,;!?]|$)",
+        driver_text,
+    ):
+        origin, dest = _place(m.group(1)), _place(m.group(2))
+        if not origin or not dest:
+            continue
+        lane = f"{origin} to {dest}"
+        if lane not in lanes:
+            lanes.append(lane[:60])
+
+    return {
+        "equipment": equipment,
+        "trailer_lengths": lengths,
+        "lanes": lanes,
+    }
+
+
 def _call_system_prompt(session) -> str:
     name = session.get("display_name") or "unknown caller"
     company = session.get("company_name") or "unknown company"
@@ -1632,8 +1713,8 @@ def _call_system_prompt(session) -> str:
     return (
         "You are Adam, a truck-dispatch assistant speaking on a phone call "
         "with a carrier or driver.\n"
-        "You may discuss loads, lanes, equipment, availability, and next "
-        "steps in a natural, brief phone style (1-3 sentences).\n"
+        "Answer in AT MOST TWO SHORT sentences (under 30 words total). "
+        "One question at a time is usually enough.\n"
         "STRICT RULES:\n"
         "- You CANNOT change, create, cancel, or delete anything in the "
         "database. If asked, say you are read-only and the dispatcher will "
@@ -1660,10 +1741,15 @@ def _call_agent_reply(session, transcript, message) -> str:
     messages.append({"role": "user", "content": message})
 
     try:
+        # gpt-oss is a reasoning model: a tiny token budget is consumed by
+        # the hidden reasoning channel and the visible content comes back
+        # empty. A moderate budget plus the 2-sentence cutter keeps both
+        # quality and brevity.
         completion = groq_client.chat.completions.create(
             model="openai/gpt-oss-20b",
             temperature=0.4,
-            max_completion_tokens=250,
+            max_completion_tokens=220,
+            reasoning_effort="low",
             messages=messages,
         )
         reply = (completion.choices[0].message.content or "").strip()
@@ -1675,13 +1761,14 @@ def _call_agent_reply(session, transcript, message) -> str:
         reply = ""
 
     if not reply:
+        log_event("call_agent_empty_reply", reason="no content from model")
         reply = (
             "I'm having trouble hearing that clearly. I can note your "
             "details for the dispatcher, but I can't change any records. "
             "Could you repeat your lane and equipment?"
         )
 
-    return reply[:1500]
+    return _shorten_call_reply(reply)[:500]
 
 
 def begin_call(usdot="", phone="", company="", person="") -> dict:
@@ -1936,6 +2023,7 @@ def end_call(session_id: str) -> dict:
             session = _call_session_to_dict(row)
             transcript = _load_call_transcript(cur, session_id, limit=100)
             summary = derive_call_summary(transcript)
+            profile = derive_call_profile(transcript)
 
             cur.execute(
                 """
@@ -1958,9 +2046,16 @@ def end_call(session_id: str) -> dict:
         session_id=session_id,
         caller_key=session["caller_key"],
         messages=len(transcript),
+        equipment=profile["equipment"],
+        lanes=profile["lanes"],
     )
 
-    return {"success": True, "session": session, "summary": summary}
+    return {
+        "success": True,
+        "session": session,
+        "summary": summary,
+        "profile": profile,
+    }
 
 
 def list_call_sessions(limit=20) -> list[dict]:
@@ -3030,11 +3125,12 @@ def stream_voice(request: StreamVoiceRequest):
                 "role": "system",
                 "content": (
                     "You are Adam, a friendly AI truck dispatch assistant. "
-                    "Speak naturally and briefly, usually one or two sentences "
-                    "at a time. Ask one question at a time. Use conversation "
-                    "history to understand follow-up questions. Never invent "
-                    "carrier details, truck availability, or load information. "
-                    "Never claim a call or booking actually happened.\n\n"
+                    "Speak naturally but VERY brief: AT MOST two short "
+                    "sentences (under 30 words) per reply. Ask one question "
+                    "at a time. Use conversation history to understand "
+                    "follow-up questions. Never invent carrier details, "
+                    "truck availability, or load information. Never claim a "
+                    "call or booking actually happened.\n\n"
 
                     "CURRENT CARRIER RESERVED FOR REVIEW:\n"
                     f"{carrier_context}\n\n"

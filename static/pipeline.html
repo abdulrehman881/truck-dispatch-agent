@@ -468,14 +468,22 @@
   });
 
   /* ================= auth ================= */
-  function tokenVal() { return sessionStorage.getItem("admin_token") || ""; }
+  function tokenVal() {
+    // sessionStorage keeps it per-tab; localStorage keeps it across
+    // browser restarts so the operator never retypes it.
+    return sessionStorage.getItem("admin_token")
+      || localStorage.getItem("admin_token")
+      || "";
+  }
   function authHeaders() {
     const t = tokenVal();
     return t ? {"Authorization": "Bearer " + t} : {};
   }
   $("saveToken").onclick = () => {
-    sessionStorage.setItem("admin_token", $("token").value.trim());
-    $("tokenState").textContent = "Token saved for this tab.";
+    const t = $("token").value.trim();
+    sessionStorage.setItem("admin_token", t);
+    try { localStorage.setItem("admin_token", t); } catch {}
+    $("tokenState").textContent = "Token saved (keeps working after browser restart).";
     loadTasks();
   };
 
@@ -995,11 +1003,25 @@
   loadTasks();
   setInterval(loadTasks, 30000);
 
-  // Pre-fill the token box if this tab already has one
-  if (sessionStorage.getItem("admin_token")) {
-    $("token").value = sessionStorage.getItem("admin_token");
-    tokenNote("Token active in this tab.");
+  // Pre-fill the token box from this tab or a previous browser session
+  if (tokenVal()) {
+    $("token").value = tokenVal();
+    tokenNote("Token active (restored from a previous visit).");
   }
+
+  // Keyboard shortcuts: Escape closes the sidebar, "/" focuses chat.
+  document.addEventListener("keydown", (e) => {
+    const typing = document.activeElement
+      && (document.activeElement.tagName === "INPUT"
+          || document.activeElement.tagName === "TEXTAREA");
+    if (e.key === "Escape" && sidebar.classList.contains("open")) {
+      closeSidebar();
+    }
+    if (e.key === "/" && !typing) {
+      e.preventDefault();
+      assistantInput.focus();
+    }
+  });
 </script>
 </body>
 </html>

@@ -348,6 +348,117 @@ def test_end_call_unknown_session_is_404(monkeypatch):
 
 
 # --------------------------------------------------
+# Brevity: phone replies are cut to at most 2 sentences
+# --------------------------------------------------
+
+def test_shorten_call_reply_keeps_one_or_two_sentences():
+    one = "Sure thing."
+    assert main._shorten_call_reply(one) == "Sure thing."
+    two = "Got it. I noted your lane."
+    assert main._shorten_call_reply(two) == two
+
+
+def test_shorten_call_reply_cuts_long_answers():
+    three = "Sure. We have reefer loads near Dallas. Let me ask about your trailer length. What year is it?"
+    kept = main._shorten_call_reply(three)
+    assert kept == "Sure. We have reefer loads near Dallas."
+    # collapse stray whitespace
+    messy = "  Sure.   We have reefer loads near Dallas.  Extra tail.  "
+    assert main._shorten_call_reply(messy) == "Sure. We have reefer loads near Dallas."
+
+
+def test_call_system_prompt_demands_two_sentences():
+    prompt = main._call_system_prompt(
+        {"display_name": "Rob", "company_name": "MLA",
+         "usdot_number": "1234567", "summary": None}
+    )
+    assert "TWO SHORT sentences" in prompt
+    assert "read-only" in prompt
+
+
+def test_call_agent_reply_shortens_model_output(monkeypatch):
+    class _Msg:
+        content = ("We have reefer loads near Dallas this week. "
+                   "They pay two dollars a mile. Tell me your trailer length "
+                   "and home state, please.")
+    class _Choice:
+        message = _Msg()
+    class _Completion:
+        choices = [_Choice()]
+    class _Completions:
+        @staticmethod
+        def create(**kwargs):
+            assert kwargs["max_completion_tokens"] <= 300  # short budget
+            assert kwargs["reasoning_effort"] == "low"
+            return _Completion()
+    class _Chat:
+        completions = _Completions()
+    class _Groq:
+        chat = _Chat()
+
+    monkeypatch.setattr(main, "groq_client", _Groq)
+    session = {"summary": None, "display_name": "Rob",
+               "company_name": "MLA", "usdot_number": "1234567"}
+    reply = main._call_agent_reply(session, [], "what loads you got")
+    assert reply == "We have reefer loads near Dallas this week. They pay two dollars a mile."
+
+
+# --------------------------------------------------
+# Structured driver profile extracted from caller words
+# --------------------------------------------------
+
+def test_derive_call_profile_extracts_equipment_lengths_lanes():
+    messages = [
+        {"role": "assistant", "content": "Good morning, how can I help?"},
+        {"role": "user", "content": "I have a 53ft reefer going from Texas to Chicago."},
+        {"role": "user", "content": "Sometimes I run a dry van from Ohio to Texas as well."},
+    ]
+    profile = main.derive_call_profile(messages)
+
+    assert profile["equipment"] == ["dry van", "reefer"]
+    assert profile["trailer_lengths"] == ["53ft"]
+    assert profile["lanes"] == ["texas to chicago", "ohio to texas"]
+
+
+def test_derive_call_profile_ignores_assistant_words_and_junk():
+    messages = [
+        {"role": "assistant", "content": "Do you have a reefer?"},
+        {"role": "user", "content": "hmm let me think"},
+    ]
+    profile = main.derive_call_profile(messages)
+    # assistant words never count; no free-text invention
+    assert profile["equipment"] == []
+    assert profile["trailer_lengths"] == []
+    assert profile["lanes"] == []
+
+
+def test_end_call_returns_profile_without_touching_summary(monkeypatch):
+    ended = ENDED_ROW[:10] + ("I haul reefer", None)
+    cursor = _install(
+        monkeypatch,
+        _Cursor(
+            fetches=[SESSION_ROW, ended],
+            rows=[
+                # stored newest-first in the DB, transcript code reverses
+                ("user", "from Texas to Chicago", False, None),
+                ("user", "I haul reefer", False, None),
+            ],
+        ),
+    )
+
+    result = main.end_call("call_abc123")
+
+    # summary format unchanged — plain caller words, no profile appended
+    assert result["summary"] == "I haul reefer | from Texas to Chicago"
+    assert result["profile"]["equipment"] == ["reefer"]
+    assert result["profile"]["lanes"] == ["texas to chicago"]
+    # nothing was written to lead tables
+    every_sql = " ".join(call[0] for call in cursor.calls)
+    for table in ("carrier_leads", "carrier_reviews", "carrier_call_attempts"):
+        assert table not in every_sql
+
+
+# --------------------------------------------------
 # HTTP endpoints & auth
 # --------------------------------------------------
 

@@ -473,11 +473,22 @@ $("msgForm").onsubmit = async (event) => {
 
 async function endCall() {
   if (!sessionId) return;
-  await fetch("/call-sessions/" + sessionId + "/end", {
+  const ended = await fetch("/call-sessions/" + sessionId + "/end", {
     method: "POST",
     headers: authHeaders(),
-  });
+  }).then(r => r.ok ? r.json() : null).catch(() => null);
   logEvent("Call ended. Summary stored.");
+  if (ended && ended.profile) {
+    const p = ended.profile;
+    const bits = [];
+    if (p.equipment && p.equipment.length) bits.push(p.equipment.join(", "));
+    if (p.trailer_lengths && p.trailer_lengths.length)
+      bits.push(p.trailer_lengths.join(", "));
+    if (p.lanes && p.lanes.length) bits.push(p.lanes.join(" | "));
+    if (bits.length) {
+      logEvent("Driver profile (from his own words): " + bits.join("  ·  "));
+    }
+  }
   sessionId = null;
   stopTimer();
   $("msgForm").classList.add("hidden");
