@@ -425,6 +425,29 @@ invalid_number, failed — covered by tests.
 > docker container had gone cold after an overnight restart — relaunched
 > uvicorn and started langgraph-postgres; health OK. Full suite **198
 > passed / 0 failed / 0 skipped** (56.8 s).
+>
+> **Short replies + driver profile + console usability (2026-10-29,
+> commit bb19174):** user said agent replies were too long. Call-agent
+> system prompt now demands AT MOST TWO SHORT sentences and the backend
+> enforces it with `_shorten_call_reply` (sentence-split cutter, max 2).
+> Discovered live that gpt-oss-20b spends a tiny token budget entirely
+> in its hidden reasoning channel (110 tokens -> finish=length, empty
+> content, silent fallback); fixed with `max_completion_tokens=220` +
+> `reasoning_effort="low"` (probed Groq directly: finish=stop, real
+> 2-sentence content), plus empty-content logging. New
+> `derive_call_profile` regex-extracts equipment/trailer lengths/lanes
+> from the driver's own words (stopword-trimmed, assistant words
+> excluded); `end_call` returns it as `profile` and logs equipment +
+> lanes; call page shows "Driver profile (from his own words)" on end.
+> Summary format unchanged. Operator console usability: admin token now
+> persists in localStorage (survives browser restart, restored on
+> load), `Escape` closes the sidebar, `/` focuses the chat input. 7 new
+> tests (`_shorten_call_reply`, `derive_call_profile`, prompt budget,
+> end-call profile). Live-verified on a real outbound session: short
+> reply, profile {reefer, 53ft, texas to chicago}; pipeline checks:
+> token prefilled from previous visit, Escape closes sidebar, `/`
+> focuses chat. Full suite **205 passed / 0 failed / 0 skipped**
+> (43.2 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
