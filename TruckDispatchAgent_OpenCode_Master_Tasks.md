@@ -405,6 +405,26 @@ invalid_number, failed — covered by tests.
 > answered → voice-first defaults on, Talk button present with mic-block
 > hint, call ended. Full suite **198 passed / 0 failed / 0 skipped**
 > (70.9 s).
+>
+> **Barge-in interrupt + receiver Hang Up + mojibake cleanup
+> (2026-10-29):** user-reported issue "agent keeps talking while I
+> interrupt" fixed on both voice surfaces. Speech recognition now keeps
+> running while Adam's reply is playing: each final transcript is
+> compared with the text Adam is speaking by word-overlap (tokens longer
+> than 2 chars, ratio above 0.55 = speaker echo, ignored); any genuinely
+> different driver/operator utterance instantly cancels speechSynthesis,
+> shows a "You interrupted" marker, and the utterance becomes the next
+> message — the mic no longer pauses during replies. The Talk/mic buttons
+> double as interrupt buttons (tap while Adam talks = stop + listen).
+> Verified by simulating both paths in the live pages: echo ignored,
+> driver sentence passed, cancel called exactly once. Receiver page
+> gained a prominent side **Hang up the call** red button next to Recent
+> callers sharing the verified end-call flow (hidden when no call is
+> open). Also wiped the last mojibake byte sequences a plain emoji scan
+> could not see (telephone/warning glyphs) from call.html. Server and
+> docker container had gone cold after an overnight restart — relaunched
+> uvicorn and started langgraph-postgres; health OK. Full suite **198
+> passed / 0 failed / 0 skipped** (56.8 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,

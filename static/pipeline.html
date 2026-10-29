@@ -753,8 +753,12 @@
 
   function speakReply(text) {
     if (!$("speakReplies").checked || !window.speechSynthesis) return;
+    adamSpeaking = true;
+    adamLastText = text;
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate = 1.02;
+    utter.onend = () => { adamSpeaking = false; };
+    utter.onerror = () => { adamSpeaking = false; };
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utter);
   }
@@ -772,9 +776,17 @@
   const micBtn = $("micBtn");
   let recognition = null;
   let wantListening = false;   // true while the round button is active
-  let selfMuted = false;       // true while Adam is speaking his reply
+  let adamSpeaking = false;    // true while Adam's voice reply is playing
+  let adamLastText = "";       // last text Adam spoke (echo filter)
 
   micBtn.onclick = () => {
+    if (adamSpeaking) {
+      // Interrupt button: stop Adam mid-sentence and listen.
+      adamSpeaking = false;
+      window.speechSynthesis && window.speechSynthesis.cancel();
+      $("micHint").textContent = "You interrupted Adam — he stopped and is listening to you.";
+      return;
+    }
     if (wantListening) stopVoice();
     else startVoice();
   };
@@ -800,12 +812,22 @@
     recognition.interimResults = false;
     recognition.lang = "en-US";
     recognition.onresult = (event) => {
-      if (selfMuted || !wantListening) return;
+      if (!wantListening) return;
       const text = event.results[event.results.length - 1][0].transcript.trim();
-      if (text) {
-        $("micHint").textContent = "Heard: " + text;
+      if (!text) return;
+      if (adamSpeaking) {
+        if (looksLikeAdamEcho(text)) {
+          return; // Adam heard his own speakers, not you — ignore.
+        }
+        // BARGE-IN: you talked over Adam — he stops instantly and takes your words.
+        adamSpeaking = false;
+        window.speechSynthesis && window.speechSynthesis.cancel();
+        $("micHint").textContent = "You interrupted Adam — he stopped and is listening to you.";
         askAssistant(text);
+        return;
       }
+      $("micHint").textContent = "Heard: " + text;
+      askAssistant(text);
     };
     recognition.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
@@ -816,7 +838,7 @@
       // temporary errors (no-speech, network, aborted) are retried by onend
     };
     recognition.onend = () => {
-      if (wantListening && !selfMuted) {
+      if (wantListening) {
         try { recognition.start(); } catch {}
       }
     };
@@ -832,24 +854,22 @@
     $("micHint").textContent = "Press the green mic and speak. Adam answers out loud and keeps listening.";
   }
 
-  // While Adam speaks a reply, lift the mic briefly so it does not hear itself.
-  const baseSpeakReply = speakReply;
-  speakReply = function (text) {
-    if (!wantListening) { baseSpeakReply(text); return; }
-    selfMuted = true;
-    try { recognition && recognition.stop(); } catch {}
-    baseSpeakReply(text);
-    const waitDone = setInterval(() => {
-      if (!window.speechSynthesis || !window.speechSynthesis.speaking) {
-        clearInterval(waitDone);
-        selfMuted = false;
-        if (wantListening) {
-          if (!recognition) buildRecognition();
-          try { recognition.start(); } catch {}
-        }
-      }
-    }, 300);
-  };
+  // Adam speaks his reply out loud; the mic STAYS live so you can talk
+  // over him. Echo of his own speakers is filtered by word overlap.
+  function tokenOverlap(a, b) {
+    const words = (x) => String(x || "").toLowerCase()
+      .split(/[^a-z0-9']+/).filter((w) => w.length > 2);
+    const sa = new Set(words(a));
+    const sb = new Set(words(b));
+    if (!sa.size || !sb.size) return 0;
+    let common = 0;
+    sa.forEach((w) => { if (sb.has(w)) common++; });
+    return common / Math.min(sa.size, sb.size);
+  }
+
+  function looksLikeAdamEcho(text) {
+    return tokenOverlap(text, adamLastText) > 0.55;
+  }
 
   /* ================= Excel exports ================= */
   document.querySelectorAll(".export-tile button").forEach((btn) => {

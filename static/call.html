@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ðŸ“ž Dispatch Agent â€” Call Console</title>
+<title>Dispatch Agent — Call Console</title>
 <style>
   :root {
     --bg: #f5f7f4; --card: #ffffff; --line: #dfe6df;
@@ -164,7 +164,7 @@
   <div class="ringCard">
     <div class="avatar">ADAM</div>
     <div class="caller" id="ringCaller">Agent Adam</div>
-    <div class="sub2" id="ringSub">Incoming call from the dispatch agentâ€¦</div>
+    <div class="sub2" id="ringSub">Incoming call from the dispatch agent…</div>
     <div class="ringBtns">
       <button id="ringAnswer">Answer</button>
       <button id="ringDecline">Decline</button>
@@ -175,7 +175,7 @@
 </div>
 
 <div class="wrap">
-  <h1>ðŸ“ž Agent call console <span class="read-only">read-only agent</span></h1>
+  <h1>Agent call console <span class="read-only">read-only agent</span></h1>
   <p class="sub">Simulates an incoming carrier call. The agent talks about loads,
   remembers past conversations, and <strong>never</strong> changes any database record.</p>
 
@@ -193,8 +193,8 @@
         <input id="fPerson" placeholder="e.g. Rob Miller"></label>
     </div>
     <div class="row" style="margin-top:14px">
-      <button id="answerBtn">ðŸ“² Answer call</button>
-      <button id="endBtn" class="danger hidden">ðŸ“´ End call</button>
+      <button id="answerBtn">Answer call</button>
+      <button id="endBtn" class="danger hidden">End call</button>
       <label class="toggle"><input type="checkbox" id="voiceOut"> Speak agent replies</label>
       <label class="toggle"><input type="checkbox" id="micOn" disabled> Listen to my mic (Chrome)</label>
     </div>
@@ -208,7 +208,7 @@
       <div id="screen">
         <div class="head">
           <div>
-            <div class="caller-id" id="callerName">â€”</div>
+            <div class="caller-id" id="callerName">—</div>
             <div class="key-pill" id="callerKey"></div>
           </div>
           <div id="timer">00:00</div>
@@ -232,8 +232,12 @@
         </form>
       </div>
 
-      <!-- Recent callers -->
+      <!-- Hang up + recent callers -->
       <div style="flex:1 1 300px;min-width:280px">
+        <button id="hangupBtn" class="danger hidden"
+                style="width:100%;font-size:1.05rem;margin-bottom:16px">
+          Hang up the call
+        </button>
         <h2 style="font-size:1rem;margin:0 0 8px">Recent callers</h2>
         <table>
           <thead><tr><th>Caller</th><th>Status</th><th></th></tr></thead>
@@ -290,7 +294,7 @@ function applyVoiceDefaults() {
 
 /* ===== Incoming call ring: the driver CHOOSES to answer or decline ===== */
 function showIncoming(subText) {
-  $("ringSub").textContent = subText || "Incoming call from the dispatch agentâ€¦";
+  $("ringSub").textContent = subText || "Incoming call from the dispatch agent…";
   $("ring").classList.add("show");
 }
 
@@ -303,7 +307,7 @@ $("ringAnswer").onclick = () => {
 $("ringDecline").onclick = async () => {
   $("ring").classList.remove("show");
   incomingAction = null;
-  showStatus("Call declined â€” no conversation started.");
+  showStatus("Call declined — no conversation started.");
   // If a server-side session was pre-created, close it so it is a missed call.
   if (token && paramsSessionId) {
     try {
@@ -316,7 +320,7 @@ $("ringDecline").onclick = async () => {
 
 async function openCall(message, isRecognized) {
   if (!token && !tokenMissing()) return;
-  showStatus("Dialingâ€¦");
+  showStatus("Dialing…");
   const res = await fetch("/call-sessions", {
     method: "POST",
     headers: authHeaders(),
@@ -329,11 +333,11 @@ async function openCall(message, isRecognized) {
   });
   if (res.status === 401) {
     token = ""; sessionStorage.removeItem("admin_token");
-    showStatus("ðŸ”’ Wrong or missing token."); return;
+    showStatus("Wrong or missing token."); return;
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    showStatus("âš  " + (body.detail || res.status)); return;
+    showStatus("" + (body.detail || res.status)); return;
   }
   const body = await res.json();
   sessionId = body.session_id;
@@ -341,6 +345,7 @@ async function openCall(message, isRecognized) {
   $("setupCard").classList.add("hidden");
   $("msgForm").classList.remove("hidden");
   $("endBtn").classList.remove("hidden");
+  $("hangupBtn").classList.remove("hidden");
   $("micOn").disabled = false;
 
   $("callerName").textContent =
@@ -353,7 +358,7 @@ async function openCall(message, isRecognized) {
     addBubble(item.role === "assistant" ? "agent" : "me",
               item.content, item.flagged);
   }
-  if (body.resumed) addDivider("Previous conversation â€” resuming where you left off");
+  if (body.resumed) addDivider("Previous conversation — resuming where you left off");
   addBubble("agent", body.greeting, false);
   applyVoiceDefaults();
   speak(body.greeting);
@@ -407,10 +412,34 @@ function stopTimer() {
   timerId = null;
 }
 
+let agentSpeaking = false;   // true while Adam's voice is playing
+let agentLastText = "";      // last thing Adam spoke (echo filter)
+
+function tokenOverlap(a, b) {
+  const words = (x) => String(x || "").toLowerCase()
+    .split(/[^a-z0-9']+/).filter((w) => w.length > 2);
+  const sa = new Set(words(a));
+  const sb = new Set(words(b));
+  if (!sa.size || !sb.size) return 0;
+  let common = 0;
+  sa.forEach((w) => { if (sb.has(w)) common++; });
+  return common / Math.min(sa.size, sb.size);
+}
+
+// If the recognition result is just Adam hearing his own voice through
+// the speakers, ignore it; otherwise it is a real driver interruption.
+function looksLikeAgentEcho(text) {
+  return tokenOverlap(text, agentLastText) > 0.55;
+}
+
 function speak(text) {
-  if (!$("voiceOut").checked || !window.speechSynthesis) return;
+  if (!window.speechSynthesis || !$("voiceOut").checked) return;
+  agentSpeaking = true;
+  agentLastText = text;
   const utter = new SpeechSynthesisUtterance(text);
   utter.rate = 1.02;
+  utter.onend = () => { agentSpeaking = false; };
+  utter.onerror = () => { agentSpeaking = false; };
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utter);
 }
@@ -431,18 +460,18 @@ $("msgForm").onsubmit = async (event) => {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    $("setupMsg").textContent = "âš  " + (body.detail || res.status);
+    $("setupMsg").textContent = "" + (body.detail || res.status);
     return;
   }
   const body = await res.json();
   if (body.flagged) {
-    addDivider("Data-change request refused â€” dispatcher only");
+    addDivider("Data-change request refused — dispatcher only");
   }
   addBubble("agent", body.reply, false);
   speak(body.reply);
 };
 
-$("endBtn").onclick = async () => {
+async function endCall() {
   if (!sessionId) return;
   await fetch("/call-sessions/" + sessionId + "/end", {
     method: "POST",
@@ -453,6 +482,7 @@ $("endBtn").onclick = async () => {
   stopTimer();
   $("msgForm").classList.add("hidden");
   $("endBtn").classList.add("hidden");
+  $("hangupBtn").classList.add("hidden");
   $("setupCard").classList.remove("hidden");
   $("micOn").checked = false;
   stopMic();
@@ -460,14 +490,25 @@ $("endBtn").onclick = async () => {
   window.speechSynthesis && window.speechSynthesis.cancel();
   showStatus("Call ended. The next call with the same identity resumes.");
   loadRecent();
-};
+}
+
+$("endBtn").onclick = endCall;
+$("hangupBtn").onclick = endCall;
 
 $("micOn").onchange = (event) => {
   event.target.checked ? startMic() : stopMic();
 };
 
-// Big round Talk button on the phone screen does the same as the mic toggle.
+// Big round Talk button on the phone screen: interrupt Adam or toggle mic.
 $("talkBtn").onclick = () => {
+  if (agentSpeaking) {
+    // Tap while Adam is talking = stop him immediately and listen.
+    agentSpeaking = false;
+    window.speechSynthesis && window.speechSynthesis.cancel();
+    addDivider("You interrupted — Adam stopped and listens to you now");
+    if (!micActive) { $("micOn").checked = true; startMic(); }
+    return;
+  }
   if (micActive) stopMic();
   else { $("micOn").checked = true; startMic(); }
 };
@@ -498,7 +539,19 @@ function buildRecognition() {
   recognition.lang = "en-US";
   recognition.onresult = (event) => {
     const text = event.results[event.results.length - 1][0].transcript.trim();
-    if (text) { $("msgInput").value = text; $("msgForm").requestSubmit(); }
+    if (!text) return;
+    // Adam's voice comes out of the speakers; the mic will sometimes
+    // transcribe his own words — ignore those, they are not the driver.
+    if (looksLikeAgentEcho(text)) return;
+    if (agentSpeaking) {
+      // BARGE-IN: driver started talking over Adam — stop him instantly
+      // and listen to the driver instead.
+      agentSpeaking = false;
+      window.speechSynthesis && window.speechSynthesis.cancel();
+      addDivider("You interrupted — Adam stopped and listens to you now");
+    }
+    $("msgInput").value = text;
+    $("msgForm").requestSubmit();
   };
   recognition.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
@@ -571,7 +624,7 @@ async function loadRecent() {
         $("fPhone").value = s.phone || "";
         $("fCompany").value = s.company_name || "";
         $("fPerson").value = s.display_name || "";
-        showStatus("Identity prefilled â€” press Answer to call back.");
+        showStatus("Identity prefilled — press Answer to call back.");
         $("fUsdot").focus();
       };
       rows.appendChild(tr);
@@ -600,7 +653,7 @@ loadRecent();
   if (session) {
     paramsSessionId = session;
     incomingAction = () => resumeSession(session);
-    showIncoming("Agent Adam is callingâ€¦");
+    showIncoming("Agent Adam is calling…");
     // Read-only lookup so the ring shows WHO the agent is calling about.
     fetch("/call-sessions/" + session, {headers: authHeaders()})
       .then(r => r.ok ? r.json() : null)
@@ -609,7 +662,7 @@ loadRecent();
           const name = s.display_name || s.company_name ||
             (s.usdot_number ? "USDOT " + s.usdot_number : s.phone || "Unknown carrier");
           $("ringCaller").textContent = name;
-          $("ringSub").textContent = "Agent Adam wants to talk about this call â€” answer or decline.";
+          $("ringSub").textContent = "Agent Adam wants to talk about this call — answer or decline.";
         }
       });
     return;
@@ -635,18 +688,18 @@ async function resumeSession(targetSessionId) {
     if (res.status === 401) {
       token = "";
       sessionStorage.removeItem("admin_token");
-      showStatus("ðŸ”’ Session requires admin token."); return;
+      showStatus("Session requires admin token."); return;
     }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      showStatus("âš  " + (body.detail || res.status)); return;
+      showStatus("" + (body.detail || res.status)); return;
     }
     const session = await res.json();
 
     // An already-ended session cannot take messages: start a fresh call
     // with the same identity instead.
     if (session.status !== "open") {
-      showStatus("Session already ended â€” starting a fresh call.");
+      showStatus("Session already ended — starting a fresh call.");
       $("fUsdot").value = session.usdot_number || "";
       $("fPhone").value = session.phone || "";
       $("fCompany").value = session.company_name || "";
@@ -660,6 +713,7 @@ async function resumeSession(targetSessionId) {
     $("setupCard").classList.add("hidden");
     $("msgForm").classList.remove("hidden");
     $("endBtn").classList.remove("hidden");
+    $("hangupBtn").classList.remove("hidden");
     $("micOn").disabled = false;
 
     $("callerName").textContent =
@@ -673,7 +727,7 @@ async function resumeSession(targetSessionId) {
                 item.content, item.flagged);
     }
     if (session.resumed_from) {
-      addDivider("Previous conversation â€” resuming where you left off");
+      addDivider("Previous conversation — resuming where you left off");
     }
     // The transcript already contains the newest agent message (greeting
     // or continuation); only speak it, it has already been displayed.
@@ -687,7 +741,7 @@ async function resumeSession(targetSessionId) {
     showStatus("Auto-connected.");
     $("msgInput").focus();
   } catch (err) {
-    showStatus("âš  Auto-connect failed: " + err.message);
+    showStatus("Auto-connect failed: " + err.message);
   }
 }
 </script>
