@@ -521,6 +521,34 @@ invalid_number, failed — covered by tests.
 > data (no auto-connect URL); "let me call you" -> same behavior.
 > 10 new tests in `tests/test_assistant.py` (71 passed standalone).
 > Full suite **228 passed / 0 failed / 0 skipped** (68.2 s).
+>
+> **Due-task reminder alarm (2026-10-30, commit f6819e2):** when a
+> scheduled task turns due, the operator console (pipeline page) now
+> announces it instead of relying on the user to open the reminders
+> view. The server scheduler already flipped tasks to status `due`
+> every 30 s; the page's existing 30 s poll now feeds the fresh
+> `checkDueTasks()` which shows an alert card (amber bell, task title,
+> due time) with three buttons — "Mark done" (posts
+> `/tasks/{id}/done` and silences forever), "Remind me later"
+> (snooze: rings again on a later poll ~5 minutes later), and
+> "Dismiss" (persists the task id in localStorage so it never rings
+> again). A generated two-tone Web-Audio chime repeats every 1.8 s
+> while the card is open (AudioContext primed on the operator's first
+> click/keypress to satisfy browser autoplay rules), and the page
+> speaks "Reminder! Time to: <title>" via speech synthesis. Snoozes
+> persist across page reloads via a `snoozed_due_tasks` localStorage
+> map (expired entries are pruned on each check) — this was a bug
+> found and fixed live during verification. Byte scan clean (no
+> emojis, no mojibake, all element ids resolve); live browser
+> verification: test reminder created via `/tasks/reminders`,
+> scheduler flipped it to due, page reload showed the card with
+> ringing state, correct title and the due row; snooze closed the
+> card and a reload stayed silent; "Remind me later" stored
+> `{"1": <ts>}` in localStorage; a second test reminder showed "Mark
+> done" closing the card and the task left the active list (server
+> status done). Both test tasks cleaned up afterwards; database left
+> empty as the operator requested. Full suite **228 passed / 0 failed
+> / 0 skipped** (106.2 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
