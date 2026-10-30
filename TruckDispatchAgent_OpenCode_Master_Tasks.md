@@ -495,6 +495,32 @@ invalid_number, failed — covered by tests.
 > no 401, and `/call` fetched the token and rendered 11 recent-caller
 > rows — and a full suite run of **209 passed / 0 failed / 0 skipped**
 > (43.3 s). README API table updated with the endpoint.
+>
+> **Assistant conversational mode — "let me talk to you" fix
+> (2026-10-30, commit 78b58b6):** user reported that asking Adam to
+> "let me talk to him" made the agent open the carrier call console
+> instead of chatting with the operator. Server logs confirmed the real
+> failure: the planner had routed operator chat to `place_outbound_call`
+> which resumed a previous carrier session (usdot:1234567) and returned
+> an auto-connect URL to `/call`. Fix, three layers: (1) new whitelisted
+> `just_chat` action with `args.reply` — the model may now answer the
+> operator conversationally (greetings, small talk, "talk to me") with
+> no side effects, including in the system prompt with explicit rules
+> that pronouns (me/you/him/her/us/them) are never carrier names;
+> (2) deterministic fallback parser recognizes talk-request phrases
+> ("talk to you", "talk to me", "let me call you", "hello"...,
+> checked last so concrete actions like metrics/search always win) and
+> reflexive pronoun targets in "call X" (call me / call him / phone you)
+> now return a just_chat reply inviting the operator to press the green
+> mic instead of opening the call console; (3) an executor safety net
+> redirects any `place_outbound_call` whose every provided target is a
+> reflexive pronoun, with `begin_call` never running (proven by a test
+> that explodes if it does). Verified live with two bounded Groq calls
+> on the restarted server: "let me talk to you" -> action `just_chat`,
+> reply "Sure! Press the green mic button to start speaking.", empty
+> data (no auto-connect URL); "let me call you" -> same behavior.
+> 10 new tests in `tests/test_assistant.py` (71 passed standalone).
+> Full suite **228 passed / 0 failed / 0 skipped** (68.2 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
