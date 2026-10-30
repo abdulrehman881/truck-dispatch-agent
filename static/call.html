@@ -5,157 +5,241 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dispatch Agent — Call Console</title>
 <style>
+  /* ================= design tokens ================= */
   :root {
-    --bg: #f5f7f4; --card: #ffffff; --line: #dfe6df;
-    --text: #1c2422; --muted: #6b7a72; --accent: #16a34a;
-    --accent-dark: #12803c; --accent-soft: #e6f5ec;
-    --caller: #edf7f0; --agent: #f2f7f4; --warn: #b45309;
-    --shadow: 0 1px 3px rgba(20, 40, 28, .08), 0 4px 14px rgba(20, 40, 28, .06);
+    --bg: #f3f7f4;
+    --panel: #ffffff;
+    --panel-2: #f8fbf8;
+    --border: #e2eae3;
+    --border-strong: #cfdbd1;
+    --ink: #12211a;
+    --muted: #60716a;
+    --accent: #16a34a;
+    --accent-deep: #0f7f3a;
+    --forest: #0d2b1e;
+    --forest-2: #123826;
+    --accent-soft: #e4f4ea;
+    --accent-mid: #c3e7d0;
+    --caller: #f2faf5;
+    --warn: #b45309;
+    --err: #b91c1c;
+    --r-sm: 9px; --r-md: 13px; --r-lg: 18px;
+    --shadow-sm: 0 1px 2px rgba(18, 34, 26, .07);
+    --shadow-md: 0 1px 3px rgba(18, 34, 26, .08), 0 6px 18px rgba(18, 34, 26, .07);
+    --shadow-lg: 0 2px 6px rgba(18, 34, 26, .08), 0 14px 36px rgba(18, 34, 26, .10);
+    --ease: .18s cubic-bezier(.2, .7, .3, 1);
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
-    display: flex; justify-content: center; padding: 24px 12px;
+    margin: 0;
+    background:
+      radial-gradient(900px 420px at 90% -10%, rgba(22, 163, 74, .07), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+    display: flex; justify-content: center;
+    padding: 26px 14px 60px;
+    min-height: 100vh;
   }
-  .wrap { width: 100%; max-width: 980px; }
-  h1 { font-size: 1.4rem; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 18px; }
-  .card {
-    background: var(--card); border: 1px solid var(--line);
-    border-radius: 14px; padding: 18px; margin-bottom: 18px;
-    box-shadow: var(--shadow);
+  .wrap { width: 100%; max-width: 1000px; }
+
+  .page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+  .brand-mark {
+    width: 42px; height: 42px; border-radius: 12px; flex: 0 0 42px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow-sm);
   }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-  .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 150px; }
-  .field span { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
-  input, select {
-    background: #fbfcfb; border: 1px solid var(--line); color: var(--text);
-    border-radius: 8px; padding: 9px 11px; font: inherit; width: 100%;
-  }
-  input:focus, select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-  button {
-    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
-    padding: 10px 18px; font: inherit; font-weight: 700; cursor: pointer;
-  }
-  button:hover { background: var(--accent-dark); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.ghost { background: #eef2ee; color: var(--text); font-weight: 500; }
-  button.danger { background: #b91c1c; color: #fff; }
-  button.danger:hover { background: #991b1b; }
-  .hidden { display: none !important; }
-  .muted { color: var(--muted); }
+  h1 { font-size: 1.55rem; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--muted); margin: 2px 0 24px; max-width: 660px; }
   .read-only {
-    display: inline-block; background: var(--accent-soft); border: 1px solid var(--accent);
-    color: var(--accent-dark); border-radius: 999px; padding: 2px 10px;
-    font-size: .75rem; font-weight: 700; letter-spacing: .05em;
+    display: inline-block; background: var(--accent-soft); border: 1px solid var(--accent-mid);
+    color: var(--accent-deep); border-radius: 999px; padding: 3px 12px;
+    font-size: .72rem; font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase; vertical-align: middle;
   }
-  /* Phone screen */
-  #phoneCard { display: flex; gap: 16px; flex-wrap: wrap; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 20px; margin-bottom: 18px;
+    box-shadow: var(--shadow-md);
+  }
+  .card-title { font-size: 1.1rem; margin: 0 0 14px; letter-spacing: -.01em; }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; flex: 1 1 170px; }
+  .field span { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; font-weight: 650; }
+  input, select {
+    background: #fbfdfb; border: 1px solid var(--border-strong); color: var(--ink);
+    border-radius: 10px; padding: 10px 12px; font: inherit; width: 100%;
+    transition: border-color var(--ease), box-shadow var(--ease);
+  }
+  input:focus, select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, .14);
+  }
+  button {
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    border-radius: 10px; padding: 10px 19px; font: inherit; font-weight: 650;
+    cursor: pointer; transition: all var(--ease);
+  }
+  button:hover { background: var(--accent-deep); border-color: var(--accent-deep); box-shadow: var(--shadow-sm); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+  button.ghost { background: var(--panel-2); color: var(--ink); font-weight: 500; border-color: var(--border-strong); }
+  button.danger { background: #dc2626; border-color: #dc2626; }
+  button.danger:hover { background: #991b1b; border-color: #991b1b; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+
+  /* ================= phone device ================= */
+  #phoneCard { display: flex; gap: 18px; flex-wrap: wrap; }
   #screen {
-    flex: 1 1 420px; border: 1px solid var(--line); border-radius: 18px;
-    background: #ffffff; padding: 16px; display: flex; flex-direction: column;
-    min-height: 480px; box-shadow: var(--shadow);
+    flex: 1 1 430px;
+    border: 1px solid var(--border); border-radius: 22px;
+    background: var(--panel); overflow: hidden;
+    display: flex; flex-direction: column; min-height: 500px;
+    box-shadow: var(--shadow-md);
   }
-  .head {
-    display: flex; align-items: center; justify-content: space-between;
-    border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px;
+  #screen .head {
+    background: linear-gradient(135deg, var(--forest), var(--forest-2));
+    color: #eef7f1; padding: 14px 18px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
   }
-  .caller-id { font-size: 1.05rem; font-weight: 700; }
+  .caller-id { font-size: 1.02rem; font-weight: 700; color: #fff; }
+  #callerKey { color: #9db8a8; font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52vw; }
   #timer {
-    color: var(--accent-dark); font-variant-numeric: tabular-nums; font-weight: 700;
-    background: var(--accent-soft); padding: 2px 10px; border-radius: 999px;
+    color: #a7f3c9; font-variant-numeric: tabular-nums; font-weight: 700;
+    background: rgba(255, 255, 255, .1); padding: 3px 12px;
+    border-radius: 999px; font-size: .88rem;
   }
-  #transcript { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .head-avatar {
+    width: 34px; height: 34px; border-radius: 10px; flex: 0 0 34px;
+    background: #22c55e; color: #06281a; font-weight: 800; font-size: .8rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #transcript {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px;
+    padding: 16px 16px 8px; background: var(--panel-2);
+  }
   .bubble {
-    max-width: 82%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap;
-    word-wrap: break-word; border: 1px solid var(--line);
+    max-width: 80%; padding: 10px 14px; border-radius: 15px; white-space: pre-wrap;
+    word-wrap: break-word; box-shadow: var(--shadow-sm);
+    animation: rise .2s ease;
   }
+  @keyframes rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
   .bubble.agent {
-    align-self: flex-start; background: var(--accent-soft);
-    border-color: #bfe5cf; border-bottom-left-radius: 4px;
+    align-self: flex-start; background: #ffffff;
+    border: 1px solid var(--border); border-bottom-left-radius: 5px;
   }
   .bubble.me {
-    align-self: flex-end; background: var(--caller);
-    border-bottom-right-radius: 4px;
+    align-self: flex-end; background: linear-gradient(135deg, #1eb356, var(--accent-deep));
+    color: #fff; border-bottom-right-radius: 5px;
   }
-  .bubble.me.flagged { box-shadow: 0 0 0 1.5px var(--warn); }
+  .bubble.me.flagged { box-shadow: 0 0 0 2px var(--warn); }
   .bubble .who {
-    display: block; font-size: .7rem; color: var(--accent-dark);
-    font-weight: 700; margin-bottom: 2px;
+    display: block; font-size: .64rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--accent-deep); font-weight: 750; margin-bottom: 3px;
   }
-  .bubble.me .who { color: var(--muted); }
+  .bubble.me .who { color: #d4f5e0; }
   .divider {
-    text-align: center; color: var(--warn); font-size: .78rem; font-weight: 700;
+    text-align: center; color: var(--warn); font-size: .76rem; font-weight: 700;
     border-top: 1px dashed #eab308; border-bottom: 1px dashed #eab308;
-    padding: 6px 0; margin: 6px 0; background: #fefce8; border-radius: 6px;
+    padding: 6px 8px; margin: 6px 0; background: #fefce8; border-radius: 8px;
+    white-space: normal;
   }
-  .contact-check { display: none; }
-  .controls { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
-  .controls input { flex: 1; }
+  .controls { display: flex; gap: 9px; margin-top: 10px; padding: 14px 16px 16px; border-top: 1px solid var(--border); background: var(--panel); }
+  .controls input { flex: 1; border-radius: 12px; }
   #talkBtn {
-    background: var(--accent-soft); color: var(--accent-dark);
-    border: 1px solid #bfe4cf; border-radius: 999px;
-    width: 56px; height: 52px; padding: 0;
+    background: var(--accent-soft); color: var(--accent-deep);
+    border: 1px solid var(--accent-mid); border-radius: 12px;
+    width: 54px; height: 50px; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
-    flex: 0 0 56px;
+    flex: 0 0 54px; transition: all var(--ease);
   }
   #talkBtn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
   #talkBtn.listening {
     background: var(--accent); color: #fff; border-color: var(--accent);
-    animation: talkPulse 1.2s infinite;
+    animation: pulse 1.2s infinite;
   }
-  @keyframes talkPulse {
+  @keyframes pulse {
     0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); }
     70% { box-shadow: 0 0 0 12px rgba(22, 163, 74, 0); }
     100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
   }
-  .toggle { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: .82rem; }
+  .toggle { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: .84rem; }
   .toggle input { accent-color: var(--accent); width: auto; }
-  /* Recent callers */
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; }
-  tbody tr:hover { background: var(--accent-soft); }
-  .key-pill { color: var(--muted); font-size: .78rem; }
-  .status-pill {
-    font-size: .72rem; text-transform: uppercase; padding: 2px 8px;
-    border-radius: 999px; font-weight: 700; display: inline-block;
+
+  /* ================= side column ================= */
+  .side-col { flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column; gap: 14px; }
+  #hangupBtn {
+    width: 100%; font-size: 1rem; padding: 14px 16px; border-radius: 14px;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, .18);
   }
-  .status-pill.open { background: var(--accent-soft); color: var(--accent-dark); }
-  .status-pill.ended { background: #eef2ee; color: var(--muted); }
-  /* ===== Incoming call ring overlay ===== */
+  .recent {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 16px; box-shadow: var(--shadow-md);
+  }
+  .recent h2 { font-size: .95rem; margin: 0 0 8px; letter-spacing: -.01em; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; }
+  tbody tr { transition: background var(--ease); }
+  tbody tr:hover { background: var(--accent-soft); }
+  .key-pill { color: var(--muted); font-size: .75rem; }
+  .status-pill {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+    padding: 3px 9px; border-radius: 999px; font-weight: 700; display: inline-block;
+  }
+  .status-pill.open { background: var(--accent-soft); color: var(--accent-deep); }
+  .status-pill.ended { background: #edf1ed; color: var(--muted); }
+  .empty-state {
+    border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+    padding: 18px; text-align: center; color: var(--muted);
+    background: var(--panel-2); font-size: .88rem; line-height: 1.5;
+  }
+
+  /* ================= incoming call ring ================= */
   #ring {
     position: fixed; inset: 0; z-index: 100; display: none;
     align-items: center; justify-content: center;
-    background: rgba(28, 36, 34, .35); backdrop-filter: blur(3px);
+    background: rgba(13, 43, 30, .45); backdrop-filter: blur(4px);
   }
   #ring.show { display: flex; }
   .ringCard {
-    background: var(--card); border: 1px solid var(--line); border-radius: 20px;
-    box-shadow: var(--shadow), 0 18px 50px rgba(20, 40, 28, .25);
-    padding: 34px 40px; text-align: center; max-width: 380px; width: 92%;
+    background: var(--panel); border-radius: 24px;
+    box-shadow: var(--shadow-lg);
+    padding: 36px 40px; text-align: center; max-width: 390px; width: 92%;
   }
   .ringCard .avatar {
-    width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 16px;
-    background: var(--accent-soft); border: 3px solid var(--accent);
+    width: 92px; height: 92px; border-radius: 28px; margin: 0 auto 16px;
+    background: linear-gradient(135deg, #22c55e, var(--accent-deep));
+    color: #06281a; font-weight: 800; font-size: 1.15rem; letter-spacing: .04em;
     display: flex; align-items: center; justify-content: center;
-    font-size: 2.4rem; color: #fff; background: var(--accent);
     animation: ringPulse 1.6s infinite;
   }
   @keyframes ringPulse {
     0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .5); }
-    70% { box-shadow: 0 0 0 22px rgba(22, 163, 74, 0); }
+    70% { box-shadow: 0 0 0 24px rgba(22, 163, 74, 0); }
     100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
   }
-  .ringCard .caller { font-size: 1.15rem; font-weight: 700; margin-bottom: 4px; }
-  .ringCard .sub2 { color: var(--muted); font-size: .85rem; margin-bottom: 20px; }
+  .ringCard .caller { font-size: 1.18rem; font-weight: 750; margin-bottom: 4px; letter-spacing: -.01em; }
+  .ringCard .sub2 { color: var(--muted); font-size: .86rem; margin-bottom: 22px; }
   .ringBtns { display: flex; gap: 14px; justify-content: center; }
-  #ringAnswer { border-radius: 999px; padding: 12px 26px; font-size: 1rem; }
-  #ringDecline { background: #eef2ee; color: var(--err); font-weight: 700; border-radius: 999px; padding: 12px 26px; font-size: 1rem; }
-  #ringDecline:hover { background: #fdeaea; }
-  .ringHint { color: var(--muted); font-size: .76rem; margin-top: 14px; }
+  #ringAnswer { border-radius: 999px; padding: 13px 30px; font-size: 1rem; }
+  #ringDecline {
+    background: var(--panel-2); color: var(--err); font-weight: 700;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px; padding: 13px 30px; font-size: 1rem;
+  }
+  #ringDecline:hover { background: #fdeaea; border-color: #f2c4c4; }
+  .ringHint { color: var(--muted); font-size: .76rem; margin-top: 16px; }
+
+  @media (max-width: 640px) {
+    body { padding: 16px 10px 40px; }
+    h1 { font-size: 1.3rem; }
+    .ringCard { padding: 28px 22px; }
+  }
 </style>
 </head>
 <body>
@@ -175,13 +259,24 @@
 </div>
 
 <div class="wrap">
-  <h1>Agent call console <span class="read-only">read-only agent</span></h1>
+  <div class="page-head">
+    <div class="brand-mark" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"></path>
+      </svg>
+    </div>
+    <div>
+      <h1>Agent call console</h1>
+      <span class="read-only">read-only agent</span>
+    </div>
+  </div>
   <p class="sub">Simulates an incoming carrier call. The agent talks about loads,
   remembers past conversations, and <strong>never</strong> changes any database record.</p>
 
   <!-- Caller identity -->
   <div class="card" id="setupCard">
-    <h2 style="font-size:1.05rem;margin:0 0 10px">Caller identity</h2>
+    <h2 class="card-title" style="font-size:1.02rem;margin:0 0 12px">Caller identity</h2>
     <div class="row">
       <label class="field"><span>USDOT number</span>
         <input id="fUsdot" placeholder="e.g. 1234567"></label>
@@ -192,29 +287,29 @@
       <label class="field"><span>Person name</span>
         <input id="fPerson" placeholder="e.g. Rob Miller"></label>
     </div>
-    <div class="row" style="margin-top:14px">
+    <div class="row" style="margin-top:16px">
       <button id="answerBtn">Answer call</button>
       <button id="endBtn" class="danger hidden">End call</button>
       <label class="toggle"><input type="checkbox" id="voiceOut"> Speak agent replies</label>
       <label class="toggle"><input type="checkbox" id="micOn" disabled> Listen to my mic (Chrome)</label>
     </div>
-    <p class="muted" id="setupMsg" style="margin:12px 0 0">
+    <p class="muted" id="setupMsg" style="margin:13px 0 0;font-size:.88rem;line-height:1.5">
       Fill at least one field. Repeat visitors resume automatically.</p>
   </div>
 
-  <!-- Phone screen -->
-  <div class="card">
+  <!-- Phone device + side column -->
+  <div class="card" style="padding:16px">
     <div id="phoneCard">
       <div id="screen">
         <div class="head">
+          <div class="head-avatar">ADAM</div>
           <div>
             <div class="caller-id" id="callerName">—</div>
-            <div class="key-pill" id="callerKey"></div>
+            <div id="callerKey"></div>
           </div>
           <div id="timer">00:00</div>
         </div>
-        <div id="transcript"
-             class="muted" style="align-items:center;justify-content:center">
+        <div id="transcript" class="empty-state" style="border:none;border-radius:0;flex:1">
           No active call.
         </div>
         <form class="controls hidden" id="msgForm">
@@ -233,20 +328,20 @@
       </div>
 
       <!-- Hang up + recent callers -->
-      <div style="flex:1 1 300px;min-width:280px">
-        <button id="hangupBtn" class="danger hidden"
-                style="width:100%;font-size:1.05rem;margin-bottom:16px">
-          Hang up the call
-        </button>
-        <h2 style="font-size:1rem;margin:0 0 8px">Recent callers</h2>
-        <table>
-          <thead><tr><th>Caller</th><th>Status</th><th></th></tr></thead>
-          <tbody id="recentRows">
-            <tr><td colspan="3" class="muted">Need token.</td></tr>
-          </tbody>
-        </table>
-        <p class="muted" style="font-size:.8rem;margin-top:8px">
-          Click a row to prefill that identity for a call back.</p>
+      <div class="side-col">
+        <button id="hangupBtn" class="danger hidden">Hang up the call</button>
+
+        <div class="recent">
+          <h2>Recent callers</h2>
+          <table>
+            <thead><tr><th>Caller</th><th>Status</th><th></th></tr></thead>
+            <tbody id="recentRows">
+              <tr><td colspan="3" class="muted">Need token.</td></tr>
+            </tbody>
+          </table>
+          <p class="muted" style="font-size:.78rem;margin:10px 0 0">
+            Click a row to prefill that identity for a call back.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -372,9 +467,8 @@ function showStatus(text) { $("setupMsg").textContent = text; }
 
 function clearTranscript() {
   $("transcript").innerHTML = "";
-  $("transcript").classList.remove("muted");
-  $("transcript").style.alignItems = "";
-  $("transcript").style.justifyContent = "";
+  $("transcript").classList.remove("empty-state");
+  $("transcript").style.background = "var(--panel-2)";
 }
 
 function addBubble(role, text, flagged) {
@@ -595,7 +689,7 @@ function updateTalkBtn() {
 function logEvent(text) {
   const div = document.createElement("div");
   div.className = "divider";
-  div.style.borderColor = "var(--line)";
+  div.style.borderColor = "var(--border)";
   div.style.color = "var(--muted)";
   div.textContent = text;
   $("transcript").appendChild(div);
@@ -645,7 +739,7 @@ async function loadRecent() {
 
 loadRecent();
 
-// ==== Agent call incoming â†’ ring first, driver chooses to answer ====
+// ==== Agent call incoming → ring first, driver chooses to answer ====
 (function initAutoConnect() {
   const params = new URLSearchParams(window.location.search);
   const auto = params.get("auto") === "1";
@@ -686,7 +780,7 @@ loadRecent();
     if (company) $("fCompany").value = company;
     if (person) $("fPerson").value = person;
     incomingAction = () => $("answerBtn").click();
-    showIncoming("Agent Adam is calling â€œ" + who + "â€");
+    showIncoming("Agent Adam is calling \u201C" + who + "\u201D");
   }
 })();
 
