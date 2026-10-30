@@ -476,6 +476,25 @@ invalid_number, failed — covered by tests.
 > real usage is unaffected. Server + langgraph-postgres container
 > relaunched after an overnight cold start. Full suite **205 passed /
 > 0 failed / 0 skipped** (34.3 s).
+>
+> **Admin token permanently saved (2026-10-30, commit 22871d3):** new
+> `GET /admin/api-token` endpoint in `main.py` returns the configured
+> `ADMIN_API_TOKEN` so the operator never retypes it. Restricted to
+> loopback clients only — `127.0.0.1`, `::1`, `localhost`, and the
+> TestClient default host; anything else gets **403** (logged as
+> `admin_api_token_refused`), an unconfigured token gets **503**, and
+> success is logged as `admin_api_token_bridged`. Both UI pages call it
+> automatically on load when no token is in `sessionStorage`/`localStorage`,
+> then persist what they received to both storages. Verified three ways:
+> 3 new tests in `tests/test_auth_admin.py` (local client hands the
+> token, remote client refused 403 via direct call with a fake remote
+> scope, missing-client edge refused 403; file now 24 passed standalone),
+> live browser verification with both storages cleared on fresh tabs —
+> `/pipeline` auto-filled the token box with "Token loaded from the
+> server automatically", green status pill on, tasks list loaded with
+> no 401, and `/call` fetched the token and rendered 11 recent-caller
+> rows — and a full suite run of **209 passed / 0 failed / 0 skipped**
+> (43.3 s). README API table updated with the endpoint.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
