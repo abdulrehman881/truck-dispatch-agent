@@ -2224,6 +2224,11 @@ class AssistantRequest(BaseModel):
 # money / contact a carrier for real.
 ASSISTANT_ACTIONS = {
     "help": "Explain what the assistant can do.",
+    "just_chat": (
+        "Reply conversationally to the operator (greetings, small talk, "
+        "'let me talk to you', 'talk to me', questions about yourself). "
+        "args: {reply: your short friendly reply}. No side effects."
+    ),
     "metrics": "Show lead/call/review counts (dashboard metrics).",
     "search_carriers": "Search leads. args: {q: text, limit: 1-100}",
     "next_carrier": "Reserve the next eligible carrier for review.",
@@ -2309,6 +2314,15 @@ ASSISTANT_SYSTEM_PROMPT = (
     + '- "call carrier 1234567" -> {"action": "place_outbound_call", "args": {"usdot_number": "1234567"}}\n'
     + '- "call carrier MLA Logistics" -> {"action": "place_outbound_call", "args": {"company_name": "MLA Logistics"}}\n'
     + '- "call carrier 555-123-4567" -> {"action": "place_outbound_call", "args": {"phone": "555-123-4567"}}\n'
+    + "\nRules:\n"
+    + '- "me", "you", "him", "her", "us", "them", "yourself" are NOT '
+    "carrier names. Requests like \"let me talk to you\", \"talk to me\", "
+    "\"can I talk to you\", \"hello\" are the operator wanting to talk to "
+    'YOU: return {"action": "just_chat", "args": {"reply": "<1-2 short '
+    "sentences inviting him to press the green mic button and speak, so "
+    'you can talk out loud>"}}.\n'
+    + "- Only use place_outbound_call when the target clearly names a "
+    "carrier (a USDOT number, a phone number, or a company name).\n"
     + "\nIf the request is unclear, or asks for something destructive "
     "(deleting data), a real phone call, or spending money, return "
     '{"action": "help", "args": {}}.\n'
@@ -2358,6 +2372,32 @@ def _parse_follow_up_at(value):
         parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
 
     return parsed
+
+
+_TALK_REPLY = (
+    "We can talk right now. Press the green mic button on this page and "
+    "just speak - I answer out loud and keep listening. No call console "
+    "is needed for us; that one is only for practicing carrier calls."
+)
+
+# Pronouns that are never a carrier identity. "call me" / "call him" /
+# "phone you" talk about people, not carriers.
+_REFLEXIVE_CALL_TARGETS = {
+    "me", "you", "yourself", "myself", "himself", "herself",
+    "itself", "us", "them", "him", "her", "adam", "us both",
+}
+
+
+def _looks_like_talk_request(lowered: str) -> bool:
+    """True when the operator is asking to talk WITH the assistant."""
+    phrases = (
+        "talk to you", "talk with you", "talk to me", "talk with me",
+        "speak to you", "speak with you", "let me talk", "let's talk",
+        "lets talk", "let us talk", "chat with you", "i want to talk",
+        "i need to talk", "let me call you", "hello", "hi adam",
+        "hey adam",
+    )
+    return any(phrase in lowered for phrase in phrases)
 
 
 def _assistant_fallback_plan(message: str) -> dict:
@@ -2472,7 +2512,11 @@ def _assistant_fallback_plan(message: str) -> dict:
         r"^(?:call|phone|dial)\s+(?:carrier\s+)?(.+)$", text, re.IGNORECASE
     )
     if call_match:
-        target = call_match.group(1).strip()
+        target = call_match.group(1).strip().rstrip(".,!")
+        # "call me" / "call him" / "phone you" is the operator talking
+        # about people, not carriers — route to a chat reply instead.
+        if target.lower() in _REFLEXIVE_CALL_TARGETS:
+            return {"action": "just_chat", "args": {"reply": _TALK_REPLY}}
         # Try to parse as USDOT, phone, or company name
         args = {}
         if re.fullmatch(r"\d{1,8}", target):
@@ -2491,6 +2535,12 @@ def _assistant_fallback_plan(message: str) -> dict:
             "action": "search_carriers",
             "args": {"q": search.group(1).strip()[:100], "limit": 10},
         }
+
+    # "Let me talk to you" / "talk to me" is a request to chat with the
+    # assistant, never a carrier call. Checked last so concrete actions
+    # (metrics, search, reminders) still win when the message names one.
+    if _looks_like_talk_request(lowered):
+        return {"action": "just_chat", "args": {"reply": _TALK_REPLY}}
 
     return {"action": "help", "args": {}}
 
@@ -2553,6 +2603,14 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
             "make real phone calls, and never spend money.",
             {"actions": sorted(ASSISTANT_ACTIONS)},
         )
+
+    if action == "just_chat":
+        reply = str(args.get("reply", "")).strip()
+        log_event(
+            "assistant_just_chat",
+            conversation_id=conversation_id,
+        )
+        return (reply[:600] or _TALK_REPLY, {})
 
     if action == "metrics":
         data = dashboard_metrics()
@@ -2836,6 +2894,21 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
                     "phone, or caller_name to identify the carrier."
                 ),
             )
+
+        # Safety net for the model path: "me"/"you"/"him" are people,
+        # not carriers. Never open the call console for a pronoun target.
+        provided = [
+            v.strip().lower().rstrip(".,!")
+            for v in (usdot, company, phone, caller)
+            if v.strip()
+        ]
+        if all(v in _REFLEXIVE_CALL_TARGETS for v in provided):
+            log_event(
+                "assistant_call_target_redirect",
+                reason="reflexive_pronoun_target",
+                conversation_id=conversation_id,
+            )
+            return (_TALK_REPLY, {})
 
         result = begin_call(
             usdot=usdot, company=company, phone=phone, person=caller

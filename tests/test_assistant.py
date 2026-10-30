@@ -485,6 +485,119 @@ def test_unsupported_action_raises():
         main.execute_assistant_action("nonsense", {}, "conv")
 
 
+# --------------------------------------------------
+# "Let me talk to you" is a chat request, never a carrier call
+# --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "let me talk to you",
+        "talk to me",
+        "can I talk to you",
+        "i want to talk to you adam",
+        "let's talk",
+        "hello",
+        "hi adam",
+    ],
+)
+def test_fallback_talk_requests_are_chat_not_calls(message):
+    plan = main._assistant_fallback_plan(message)
+    assert plan["action"] == "just_chat"
+    assert "mic" in plan["args"]["reply"].lower()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "call me",
+        "let me call you",
+        "call him",
+        "phone you",
+        "call yourself",
+    ],
+)
+def test_fallback_pronoun_call_targets_are_chat_not_calls(message):
+    plan = main._assistant_fallback_plan(message)
+    assert plan["action"] == "just_chat"
+
+
+def test_fallback_talk_phrases_do_not_shadow_real_actions():
+    # Concrete actions must still win when the message names one.
+    assert main._assistant_fallback_plan("show metrics")["action"] == "metrics"
+    assert (
+        main._assistant_fallback_plan("search XPO carriers")["action"]
+        == "search_carriers"
+    )
+
+
+def test_fallback_real_carrier_call_still_works():
+    plan = main._assistant_fallback_plan("call carrier 1234567")
+    assert plan["action"] == "place_outbound_call"
+    assert plan["args"]["usdot_number"] == "1234567"
+
+
+def test_execute_just_chat_returns_reply_only():
+    reply, data = main.execute_assistant_action(
+        "just_chat", {"reply": "Press the mic and talk."}, "conv"
+    )
+    assert reply == "Press the mic and talk."
+    assert data == {}
+    assert "auto_connect_url" not in str(data)
+
+
+def test_execute_just_chat_empty_reply_gets_default():
+    reply, _ = main.execute_assistant_action("just_chat", {}, "conv")
+    assert reply.strip()
+
+
+def test_execute_pronoun_outbound_call_redirects_to_chat(monkeypatch):
+    # Even if the model plans place_outbound_call with a pronoun target,
+    # no call session may be created.
+    def _explode(*a, **k):  # begin_call must never run
+        raise AssertionError("begin_call must not run for pronoun targets")
+
+    monkeypatch.setattr(main, "begin_call", _explode)
+
+    reply, data = main.execute_assistant_action(
+        "place_outbound_call", {"company_name": "me"}, "conv"
+    )
+    assert "mic" in reply.lower()
+    assert data == {}
+
+
+def test_execute_real_outbound_call_not_affected(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "begin_call",
+        lambda **kwargs: {"session_id": "call_x", "caller_key": "k",
+                          "resumed": False},
+    )
+    reply, data = main.execute_assistant_action(
+        "place_outbound_call", {"usdot_number": "1234567"}, "conv"
+    )
+    assert data["session_id"] == "call_x"
+    assert "auto_connect_url" in data
+
+
+def test_model_planned_just_chat_reaches_endpoint(monkeypatch):
+    plan_json = json.dumps(
+        {
+            "action": "just_chat",
+            "args": {"reply": "Sure, press the green mic and talk."},
+        }
+    )
+    monkeypatch.setattr(main, "groq_client", _FakeGroq(plan_json))
+
+    response = _ask("let me talk to you")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "just_chat"
+    assert "mic" in body["reply"].lower()
+    assert not body.get("data")
+
+
 def test_no_destructive_action_exists():
     assert not any(
         word in name
