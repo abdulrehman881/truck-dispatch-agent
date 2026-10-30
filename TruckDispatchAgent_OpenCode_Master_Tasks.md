@@ -448,6 +448,34 @@ invalid_number, failed — covered by tests.
 > token prefilled from previous visit, Escape closes sidebar, `/`
 > focuses chat. Full suite **205 passed / 0 failed / 0 skipped**
 > (43.2 s).
+>
+> **Full UI redesign, operator + call consoles (2026-10-30, commit
+> 4988241):** user chose the full-redesign option for both pages. New
+> design system (CSS custom properties): deep forest-green gradient
+> sidebar with white links and icon tiles (statically visible on
+> screens wider than 1150 px, hamburger + overlay below), refined
+> typography scale (15 px body, 1.7 rem page titles, big tabular-nums
+> stat numbers), card depth with soft shadows and hover lift, one
+> consistent status-color system across badges/pills/priorities,
+> dashed empty states ("No tasks scheduled", transcript placeholder),
+> device-style phone screen on the call page (dark gradient header
+> strip with ADAM avatar, tabular timer, gradient driver bubbles,
+> white agent cards), stylized incoming-ring card with rounded ADAM
+> avatar, and mobile-friendly paddings. All element IDs, handlers and
+> behavior kept byte-identical: mic/barge-in, ring Answer/Decline,
+> Hang Up, token persistence, keyboard shortcuts, view switching.
+> Verified by a byte scan (zero emojis, zero mojibake, every
+> get-element id resolves) and live in the browser: sidebar hamburger
+> open/Escape-close (open=left 0, closed=left -306), all four views
+> switch, chips present, "/" focuses chat; call page full cycle on a
+> real session — ring showed "Redesign Test Lines", Answer connected
+> with timer running, driver bubble in gradient style, agent reply
+> shown, Hang Up returned the setup screen. Note: csstransition on the
+> sidebar appears frozen when the tab is not focused (browser
+> throttling) — verified by disabling transition during measurement;
+> real usage is unaffected. Server + langgraph-postgres container
+> relaunched after an overnight cold start. Full suite **205 passed /
+> 0 failed / 0 skipped** (34.3 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
