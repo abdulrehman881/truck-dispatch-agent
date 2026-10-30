@@ -190,6 +190,41 @@ def require_admin(request: Request):
         )
 
 
+def _is_local_request(request: Request) -> bool:
+    """True for loopback clients only (server and browser share this machine)."""
+    client = request.client
+    host = (client.host if client else "") or ""
+    # "testclient" is FastAPI's TestClient default host.
+    return host in ("127.0.0.1", "::1", "localhost", "testclient")
+
+
+@app.get("/admin/api-token", include_in_schema=False)
+def admin_api_token(request: Request):
+    """Hand the configured admin token to the browser UI on this machine.
+
+    The UI pages call this once on load when they have no saved token, so
+    the operator never has to retype it. Restricted to loopback requests:
+    the server itself is the only party the browser can ask, and remote
+    clients must never see the token.
+    """
+    if not _is_local_request(request):
+        log_event(
+            "admin_api_token_refused",
+            host=str(request.client.host if request.client else "unknown"),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Token bootstrap is restricted to this machine (localhost).",
+        )
+    if not ADMIN_API_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="ADMIN_API_TOKEN is not configured on the server.",
+        )
+    log_event("admin_api_token_bridged", scope="localhost")
+    return {"api_token": ADMIN_API_TOKEN}
+
+
 @app.middleware("http")
 async def attach_request_id(request, call_next):
     """Assign a request/session ID and log one line per HTTP request."""

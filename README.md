@@ -98,6 +98,7 @@ python -m pytest tests -q
 | `GET /call-sessions/{id}` | Get call session detail and transcript (admin) |
 | `POST /call-sessions/{id}/end` | End a call session & derive summary (admin) |
 | `GET /call-sessions` | List recent call sessions (admin) |
+| `GET /admin/api-token` | Hand the admin token to the UI on this machine (localhost only; 403 for remote clients, 503 if unconfigured) |
 
 #### Web phone call center (`/call`)
 

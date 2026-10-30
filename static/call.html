@@ -355,6 +355,20 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
 
 let token = sessionStorage.getItem("admin_token") ||
   localStorage.getItem("admin_token") || "";
+
+// If this browser has no saved token, ask the local server (localhost
+// only) to hand it over, so the operator never retypes it.
+fetch("/admin/api-token")
+  .then(r => r.ok ? r.json() : null)
+  .then(body => {
+    if (body && body.api_token && !token) {
+      token = body.api_token;
+      sessionStorage.setItem("admin_token", token);
+      try { localStorage.setItem("admin_token", token); } catch {}
+      loadRecent();
+    }
+  })
+  .catch(() => {/* server unreachable — the prompt fallback still works */});
 const authHeaders = () => ({
   ...(token ? { Authorization: "Bearer " + token } : {}),
   "Content-Type": "application/json",

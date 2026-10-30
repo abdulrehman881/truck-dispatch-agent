@@ -1234,6 +1234,22 @@
     $("token").value = tokenVal();
     tokenNote("Token active (restored from a previous visit).");
     $("topStatus").classList.add("on");
+  } else {
+    // Bootstrap: no saved token — ask the local server (localhost only)
+    // to hand it over, so the operator never retypes it.
+    fetch("/admin/api-token")
+      .then(r => r.ok ? r.json() : null)
+      .then(body => {
+        if (body && body.api_token) {
+          sessionStorage.setItem("admin_token", body.api_token);
+          try { localStorage.setItem("admin_token", body.api_token); } catch {}
+          $("token").value = body.api_token;
+          tokenNote("Token loaded from the server automatically.");
+          $("topStatus").classList.add("on");
+          loadTasks();
+        }
+      })
+      .catch(() => {/* server unreachable — manual save still works */});
   }
   $("saveToken").addEventListener("click", () => $("topStatus").classList.add("on"));
 

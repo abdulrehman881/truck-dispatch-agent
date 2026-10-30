@@ -167,6 +167,45 @@ def test_unconfigured_token_fails_closed(monkeypatch):
 
 
 # --------------------------------------------------
+# Local token bootstrap: the UI never asks the operator to retype
+# --------------------------------------------------
+
+def test_api_token_bootstrap_hands_token_to_local_ui():
+    """Localhost browser may fetch the token once (operator convenience)."""
+    response = client.get("/admin/api-token")
+    assert response.status_code == 200
+    assert response.json()["api_token"] == TEST_ADMIN_TOKEN
+
+
+def test_api_token_bootstrap_is_loopback_only(monkeypatch):
+    """A remote-looking client must never see the token."""
+    import pytest
+    from types import SimpleNamespace
+
+    remote = SimpleNamespace(client=SimpleNamespace(host="203.0.113.7"))
+    with pytest.raises(main.HTTPException) as err:
+        main.admin_api_token(remote)
+    assert err.value.status_code == 403
+
+
+def test_api_token_bootstrap_refuses_missing_client(monkeypatch):
+    """No client info at all (proxy edge) stays closed."""
+    import pytest
+    from types import SimpleNamespace
+
+    unknown = SimpleNamespace(client=None)
+    with pytest.raises(main.HTTPException) as err:
+        main.admin_api_token(unknown)
+    assert err.value.status_code == 403
+
+
+def test_api_token_bootstrap_unconfigured_fails_closed(monkeypatch):
+    monkeypatch.setattr(main, "ADMIN_API_TOKEN", None, raising=False)
+    response = TestClient(main.app).get("/admin/api-token")
+    assert response.status_code == 503
+
+
+# --------------------------------------------------
 # Public endpoints must never require the token
 # --------------------------------------------------
 
