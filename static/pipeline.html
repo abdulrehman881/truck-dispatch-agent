@@ -436,6 +436,36 @@
     font-size: .9rem; line-height: 1.55;
   }
 
+  /* ================= due-task reminder alarm ================= */
+  .task-alert-overlay {
+    position: fixed; inset: 0; z-index: 90;
+    background: rgba(13, 43, 30, .5); backdrop-filter: blur(3px);
+    display: none; align-items: center; justify-content: center;
+  }
+  .task-alert-overlay.show { display: flex; }
+  .task-alert {
+    background: #fff; border-radius: 22px; box-shadow: var(--shadow-lg);
+    width: 92%; max-width: 430px; padding: 26px 26px 18px;
+    text-align: center; animation: alertIn .25s ease;
+  }
+  @keyframes alertIn { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+  .task-alert .alert-ico {
+    width: 64px; height: 64px; border-radius: 20px; margin: 0 auto 14px;
+    background: linear-gradient(135deg, #f59e0b, #b45309); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    animation: pulse 1.2s infinite;
+  }
+  .task-alert h3 { margin: 0 0 8px; font-size: 1.15rem; letter-spacing: -.01em; }
+  .task-alert .task-title { font-weight: 700; color: var(--accent-deep); margin-bottom: 3px; }
+  .task-alert .task-due { color: var(--muted); font-size: .85rem; margin-bottom: 18px; }
+  .task-alert .alert-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .task-alert button.secondary {
+    background: var(--panel-2); color: var(--ink);
+    border-color: var(--border-strong); font-weight: 550;
+  }
+  .task-alert button.secondary:hover { background: var(--accent-soft); }
+  .task-alert .alert-note { font-size: .75rem; color: var(--muted); margin: 12px 0 0; }
+
   /* ================= desktop: sidebar always out ================= */
   @media (min-width: 1150px) {
     .sidebar { transform: none !important; box-shadow: none; }
@@ -664,6 +694,29 @@
       </table>
     </div>
   </section>
+</div>
+
+<!-- Due-task reminder alarm: rings when a task is due -->
+<div class="task-alert-overlay" id="taskAlert">
+  <div class="task-alert" role="alertdialog" aria-live="assertive">
+    <div class="alert-ico" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path>
+        <path d="M13.7 21a2 2 0 0 1-3.4 0"></path>
+      </svg>
+    </div>
+    <h3>Time for a task</h3>
+    <div class="task-title" id="alertTaskTitle">-</div>
+    <div class="task-due" id="alertTaskDue"></div>
+    <div class="alert-btns">
+      <button id="alertDone">Mark done</button>
+      <button id="alertSnooze" class="secondary">Remind me later</button>
+      <button id="alertDismiss" class="secondary">Dismiss</button>
+    </div>
+    <p class="alert-note">The reminder rings while this tab is open.
+    Mark it done to stop the ring.</p>
+  </div>
 </div>
 
 <script>
@@ -1159,6 +1212,7 @@
 
       const body = await res.json();
       const tasks = body.tasks || [];
+      checkDueTasks(tasks);
       $("taskRows").innerHTML = "";
 
       if (!tasks.length) {
@@ -1224,6 +1278,163 @@
       addMessage("error", "Task update error: " + err.message);
     }
   }
+
+  /* ================= due-task reminder alarm ================= */
+  const ALERTED_KEY = "alerted_due_tasks";
+  const SNOOZED_KEY = "snoozed_due_tasks";
+  const alertQueue = [];          // due tasks waiting to be shown
+  let currentAlertId = null;
+  let ringTimer = null;
+  let audioCtx = null;
+  let snoozeUntil = loadSnoozed(); // task id -> timestamp to stop nagging
+
+  function loadSnoozed() {
+    try { return JSON.parse(localStorage.getItem(SNOOZED_KEY) || "{}"); }
+    catch { return {}; }
+  }
+
+  function saveSnoozed() {
+    try {
+      localStorage.setItem(SNOOZED_KEY, JSON.stringify(snoozeUntil));
+    } catch {}
+  }
+
+  // Drop snooze entries that have expired, so they stop being stored.
+  function pruneSnoozed() {
+    const now = Date.now();
+    for (const id of Object.keys(snoozeUntil)) {
+      if (snoozeUntil[id] <= now) delete snoozeUntil[id];
+    }
+  }
+
+  function alertedSet() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(ALERTED_KEY) || "[]"));
+    } catch { return new Set(); }
+  }
+
+  function saveAlerted(set) {
+    try {
+      localStorage.setItem(ALERTED_KEY, JSON.stringify([...set].slice(-300)));
+    } catch {}
+  }
+
+  // Browsers block audio until the operator interacts with the page once.
+  // Prime the audio context on the first click/keypress so the ring works.
+  function primeAudio() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+  ["pointerdown", "keydown"].forEach((ev) =>
+    document.addEventListener(ev, primeAudio, { once: true })
+  );
+
+  function playRing() {
+    if (!audioCtx) return;
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    // Two-tone chime (ding dong), like a classic bell.
+    [[880, 0], [659.25, 0.28]].forEach(([freq, off]) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0 + off);
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + off + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.24);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t0 + off);
+      osc.stop(t0 + off + 0.3);
+    });
+  }
+
+  function startRing() {
+    stopRing();
+    primeAudio();
+    playRing();
+    ringTimer = setInterval(playRing, 1800);
+    $("taskAlert").dataset.ringing = "1";
+  }
+
+  function stopRing() {
+    if (ringTimer) clearInterval(ringTimer);
+    ringTimer = null;
+    const el = $("taskAlert");
+    if (el) delete el.dataset.ringing;
+  }
+
+  function speakReminder(title) {
+    if (!window.speechSynthesis) return;
+    const utter = new SpeechSynthesisUtterance(
+      "Reminder! Time to: " + (title || "your scheduled task")
+    );
+    utter.rate = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  }
+
+  // Called from loadTasks with the fresh /tasks list.
+  function checkDueTasks(tasks) {
+    const alerted = alertedSet();
+    pruneSnoozed();
+    const now = Date.now();
+    for (const task of tasks) {
+      if (task.status !== "due") continue;
+      const id = String(task.id);
+      if (alerted.has(id)) continue;
+      if (snoozeUntil[id] && snoozeUntil[id] > now) continue;
+      if (alertQueue.some((q) => q.id === id)) continue;
+      alertQueue.push({ id: id, title: task.title, due_at: task.due_at });
+    }
+    if (!$("taskAlert").classList.contains("show")) showNextDueAlert();
+  }
+
+  function showNextDueAlert() {
+    const next = alertQueue.shift();
+    if (!next) { stopRing(); return; }
+    currentAlertId = next.id;
+    $("alertTaskTitle").textContent = next.title || "Scheduled task";
+    $("alertTaskDue").textContent = next.due_at
+      ? "Was due at " + String(next.due_at).replace("T", " ").slice(0, 16)
+      : "";
+    $("taskAlert").classList.add("show");
+    startRing();
+    speakReminder(next.title);
+  }
+
+  function acknowledgeCurrent(persistId) {
+    stopRing();
+    if (persistId != null) {
+      const set = alertedSet();
+      set.add(String(persistId));
+      saveAlerted(set);
+    }
+    currentAlertId = null;
+    $("taskAlert").classList.remove("show");
+    showNextDueAlert();
+  }
+
+  $("alertDone").onclick = () => {
+    const id = currentAlertId;
+    acknowledgeCurrent(id);
+    if (id) setTaskStatus(id, "done");
+  };
+
+  $("alertDismiss").onclick = () => acknowledgeCurrent(currentAlertId);
+
+  $("alertSnooze").onclick = () => {
+    // Persists across page reloads: rings again on a later poll (about
+    // 5 minutes from now) because the task is NOT added to the
+    // permanently-alerted set.
+    if (currentAlertId != null) {
+      snoozeUntil[currentAlertId] = Date.now() + 5 * 60 * 1000;
+      saveSnoozed();
+    }
+    acknowledgeCurrent(null);
+  };
 
   $("refreshTasks").onclick = loadTasks;
   loadTasks();
