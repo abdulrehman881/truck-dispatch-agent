@@ -507,10 +507,14 @@
   .task-alert button.secondary:hover { background: var(--accent-soft); }
   .task-alert .alert-note { font-size: .75rem; color: var(--muted); margin: 12px 0 0; }
 
-  /* ================= desktop: sidebar always out ================= */
+  /* ================= desktop: sidebar open by default, collapse ================= */
   @media (min-width: 1150px) {
-    .sidebar { transform: none !important; box-shadow: none; }
-    #menuBtn { display: none; }
+    .sidebar { transform: translateX(0); box-shadow: none; }
+    .sidebar.closed-desktop {
+      transform: translateX(-102%);
+      box-shadow: var(--shadow-lg);
+    }
+    body.side-closed .wrap { margin-left: 0; }
     .overlayish { display: none !important; }
     .wrap { margin-left: 300px; max-width: 1060px; padding-left: 30px; padding-right: 30px; }
     .topbar { padding-left: 30px; }
@@ -810,9 +814,48 @@
   /* ================= sidebar ================= */
   const sidebar = $("sidebar");
   const overlay = $("overlay");
-  $("menuBtn").onclick = () => { sidebar.classList.add("open"); overlay.classList.add("show"); };
+
+  const desktopMQ = "(min-width: 1150px)";
+  const isWide = () => window.matchMedia(desktopMQ).matches;
+
+  $("menuBtn").onclick = () => {
+    if (isWide()) { toggleDesktopSidebar(); return; }
+    sidebar.classList.add("open");
+    overlay.classList.add("show");
+  };
   overlay.onclick = closeSidebar;
   function closeSidebar() { sidebar.classList.remove("open"); overlay.classList.remove("show"); }
+
+  // Desktop (wide screens): the sidebar starts open and the same
+  // button collapses it. The choice persists per browser.
+  function applyDesktopSidebar() {
+    if (!isWide()) {
+      sidebar.classList.remove("closed-desktop");
+      document.body.classList.remove("side-closed");
+      return;
+    }
+    // Leaving narrow mode: a mobile-open sidebar becomes the pinned
+    // desktop one unless it was collapsed before.
+    const closed = localStorage.getItem("side_desktop") === "closed";
+    sidebar.classList.remove("open");
+    overlay.classList.remove("show");
+    sidebar.classList.toggle("closed-desktop", closed);
+    document.body.classList.toggle("side-closed", closed);
+  }
+
+  function toggleDesktopSidebar() {
+    const closed = !sidebar.classList.contains("closed-desktop");
+    try { localStorage.setItem("side_desktop", closed ? "closed" : "open"); } catch {}
+    applyDesktopSidebar();
+  }
+
+  applyDesktopSidebar();
+  const mqList = window.matchMedia(desktopMQ);
+  if (mqList.addEventListener) {
+    mqList.addEventListener("change", applyDesktopSidebar);
+  } else if (mqList.addListener) {
+    mqList.addListener(applyDesktopSidebar);   // older Safari
+  }
 
   document.querySelectorAll(".side-link").forEach(link => {
     link.onclick = () => {
@@ -1646,6 +1689,11 @@
     if (e.key === "Escape" && typeof closeDataViewer === "function"
         && $("dvModal").classList.contains("show")) {
       closeDataViewer();
+      return;
+    }
+    if (e.key === "Escape" && isWide()
+        && !sidebar.classList.contains("closed-desktop")) {
+      toggleDesktopSidebar();   // Escape collapses the pinned sidebar
       return;
     }
     if (e.key === "Escape" && sidebar.classList.contains("open")) {
