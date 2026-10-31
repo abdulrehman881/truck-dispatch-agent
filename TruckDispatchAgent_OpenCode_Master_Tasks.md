@@ -583,6 +583,44 @@ invalid_number, failed — covered by tests.
 > afterwards; database left empty as the operator requested. Docker
 > Desktop needed restarting after an overnight boot. Full suite
 > **235 passed / 0 failed / 0 skipped** (91.1 s).
+>
+> **Sidebar collapse on wide screens (2026-10-31, commit 0518ffe):**
+> user report: on his wide browser the sidebar was permanently open
+> with no way to close it (the redesign pinned it above 1150 px and
+> hid the hamburger). Fix in `static/pipeline.html`, id/behavior
+> compatible. CSS: the ≥1150 px block now keeps the sidebar open by
+> default but honors a new `closed-desktop` class
+> (*`transform: translateX(-102%)`*). `#menuBtn` stays visible at
+> every width, and `body.side-closed .wrap { margin-left: 0 }` reclaims
+> sidebar space when collapsed. JS: the hamburger now routes to
+> `toggleDesktopSidebar()` on wide screens (same menu button opens
+> and closes); Escape collapses the pinned sidebar (close only, never
+> expands, data viewer still handled first); the choice persists in
+> `localStorage["side_desktop"]` = "open"/"closed"; a real
+> `matchMedia` change listener re-applies state when the window is
+> resized across the 1150 px boundary, and on wide load the stored
+> choice is honored instead of always opening. Verification: narrow
+> mode (800 px) regression — hamburger opens (left 0, overlay on),
+> Escape closes (left -306, overlay off), localStorage untouched. Wide
+> mode simulated in the browser via a session matchMedia stub
+> (interpreter viewport is 800 px; there is no resize tool) plus a
+> temporary style sheet replicating the media block's selectors so the
+> real geometry was measured: toggle collapsed
+> (`sidebar closed-desktop`, `body side-closed`, left -306, wrap
+> margin 0, `side_desktop`="closed"), second click reopened
+> (left 0, wrap margin 300 px, `side_desktop`="open"), Escape
+> collapsed again; menu button visible in desktop mode. Two retry
+> lessons recorded: a wrong result was first caused by STALE JS on an
+> unreloaded tab (always reload after editing static HTML), and a
+> second wrong measurement caught the sidebar mid-animation —
+> transition must be disabled during `getBoundingClientRect` reads.
+> Stale `side_desktop` values are harmless in narrow mode (verified by
+> loading with "closed" stored). Scanner-passed: zero emojis/mojibake,
+> all ids resolve, data-viewer structure intact. Real-viewport step for
+> the operator: hard-refresh `/pipeline` (Ctrl+Shift+R) on his wide
+> browser — menu button should now collapse/expand and remember his
+> choice. Backend untouched; no test count change (suite last ran
+> 235 passed).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
