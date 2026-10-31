@@ -549,6 +549,40 @@ invalid_number, failed — covered by tests.
 > status done). Both test tasks cleaned up afterwards; database left
 > empty as the operator requested. Full suite **228 passed / 0 failed
 > / 0 skipped** (106.2 s).
+>
+> **Database cleanup on operator request (2026-10-30):** full
+> pg_dump backup taken first
+> (`backups/truck_dispatch_db_2026-10-30_full.sql.bak`, 373 KB, all 7
+> tables, verified: 7 COPY dumps, no error markers, gitignored via
+> `*.sql.bak`), then all tables truncated with
+> `RESTART IDENTITY CASCADE` (carrier_leads 487, carrier_reviews 6,
+> call_sessions 13, call_messages 48, scheduled_tasks 2 -> all 0).
+> Schema untouched; the app stayed healthy throughout.
+>
+> **In-browser carrier data viewer (2026-10-31, commit 5b027ac):**
+> user asked to see the export sheets in the browser instead of
+> downloading files. Added `GET /export-data` (admin token required)
+> returning the exact rows the Excel export uses — the SQL was
+> refactored into a shared `_export_rows()` so `/export-excel` and
+> `/export-data` can never drift apart; `?review_status=` and
+> `?limit=` (default 500, max 2000) filters, JSON out. On the
+> pipeline page every export tile now has a "View in browser" button
+> beside Download which opens a large modal: title, live count,
+> search box filtering by USDOT/company/phone, sticky-header scroll
+> table (USDOT, company, phone, fleet, score, priority colors,
+> review status, follow-up, notes), top 300 rows, closes via Close
+> button, background click, or Escape. Verified 7 new tests in
+> `tests/test_export_data.py` (auth 401, Literal validation 422 for
+> unknown status, limit bounds 422, dict shape, filter+limit reaching
+> the SQL, DB-error 500, and `/export-excel` still producing a valid
+> xlsx "PK" zip after the refactor). Live browser verification with
+> two seeded test carriers and one review: "All leads" viewer showed
+> "2 carriers" with correct data and joined review status, search
+> narrowed to "1 of 2", Escape closed the modal; the "Interested
+> carriers" tile showed only the reviewed carrier. Test rows deleted
+> afterwards; database left empty as the operator requested. Docker
+> Desktop needed restarting after an overnight boot. Full suite
+> **235 passed / 0 failed / 0 skipped** (91.1 s).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
