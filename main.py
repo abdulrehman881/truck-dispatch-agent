@@ -235,6 +235,11 @@ async def attach_request_id(request, call_next):
 
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    # Let the browser revalidate UI pages each visit; stale code has
+    # already confused the operator once (old sidebar behaviour kept
+    # running after an edit until a manual Ctrl+Shift+R).
+    if "text/html" in response.headers.get("content-type", ""):
+        response.headers["Cache-Control"] = "no-cache"
     log_event(
         "http_request",
         method=request.method,
