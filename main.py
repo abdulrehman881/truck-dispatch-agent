@@ -4187,6 +4187,95 @@ def get_next_carrier(conversation_id: str):
         ) from exc
 
 
+def _export_rows(review_status: str | None, limit: int | None = None):
+    """Shared carrier-rows query for the Excel export and the JSON view.
+
+    Returns (headers, rows) where rows are raw DB tuples in header
+    order. `review_status` filters to carriers whose latest review has
+    that status; `limit` caps the number of rows for the browser view.
+    """
+    where_clause = ""
+    params: tuple = ()
+    if review_status is not None:
+        where_clause = "WHERE r.review_status = %s"
+        params = (review_status,)
+
+    sql = f"""
+            SELECT
+                c.usdot_number,
+                c.company_name,
+                c.phone,
+                c.vehicle_count,
+                c.lead_score,
+                c.priority,
+                r.review_status,
+                r.follow_up_at,
+                r.notes,
+                r.reviewed_at
+            FROM public.carrier_leads AS c
+            LEFT JOIN LATERAL (
+                SELECT
+                    review_status,
+                    follow_up_at,
+                    notes,
+                    reviewed_at
+                FROM public.carrier_reviews
+                WHERE usdot_number = c.usdot_number
+                ORDER BY reviewed_at DESC, id DESC
+                LIMIT 1
+            ) AS r ON TRUE
+            {where_clause}
+            ORDER BY
+                CASE c.priority
+                    WHEN 'high' THEN 1
+                    WHEN 'medium' THEN 2
+                    ELSE 3
+                END,
+                c.lead_score DESC NULLS LAST,
+                c.company_name
+        """
+    if limit is not None:
+        sql += " LIMIT %s"
+        params = params + (int(limit),)
+    sql += ";"
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            headers = [column.name for column in cur.description]
+    return headers, rows
+
+
+@app.get("/export-data", dependencies=[Depends(require_admin)])
+def export_data(
+    review_status: Literal[
+        "interested",
+        "not_interested",
+        "callback_requested",
+        "do_not_contact",
+    ]
+    | None = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=2000),
+):
+    """Same data as /export-excel, as JSON for the in-browser table view.
+
+    Optional `?review_status=` filter and `?limit=` (default 500,
+    max 2000). Read-only: no download required.
+    """
+    try:
+        headers, rows = _export_rows(review_status, limit=limit)
+    except Exception as exc:
+        print(f"ERROR in /export-data: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not load carrier data. Check server terminal.",
+        ) from exc
+
+    data = [dict(zip(headers, row)) for row in rows]
+    return {"count": len(data), "limit": limit, "rows": data}
+
+
 @app.get("/export-excel", dependencies=[Depends(require_admin)])
 def export_excel(
     review_status: Literal[
@@ -4203,52 +4292,8 @@ def export_excel(
     status (e.g. `?review_status=interested`).
     """
 
-    where_clause = ""
-    params: tuple = ()
-    if review_status is not None:
-        where_clause = "WHERE r.review_status = %s"
-        params = (review_status,)
-
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"""
-                    SELECT
-                        c.usdot_number,
-                        c.company_name,
-                        c.phone,
-                        c.vehicle_count,
-                        c.lead_score,
-                        c.priority,
-                        r.review_status,
-                        r.follow_up_at,
-                        r.notes,
-                        r.reviewed_at
-                    FROM public.carrier_leads AS c
-                    LEFT JOIN LATERAL (
-                        SELECT
-                            review_status,
-                            follow_up_at,
-                            notes,
-                            reviewed_at
-                        FROM public.carrier_reviews
-                        WHERE usdot_number = c.usdot_number
-                        ORDER BY reviewed_at DESC, id DESC
-                        LIMIT 1
-                    ) AS r ON TRUE
-                    {where_clause}
-                    ORDER BY
-                        CASE c.priority
-                            WHEN 'high' THEN 1
-                            WHEN 'medium' THEN 2
-                            ELSE 3
-                        END,
-                        c.lead_score DESC NULLS LAST,
-                        c.company_name;
-                """, params)
-
-                rows = cur.fetchall()
-                headers = [column.name for column in cur.description]
+        headers, rows = _export_rows(review_status)
 
         workbook = Workbook()
         worksheet = workbook.active

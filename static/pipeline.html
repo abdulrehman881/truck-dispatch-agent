@@ -409,7 +409,48 @@
   }
   .export-tile b { font-size: .93rem; }
   .export-tile small { color: var(--muted); line-height: 1.45; }
-  .export-tile button { padding: 8px 15px; font-size: .88rem; align-self: flex-start; margin-top: auto; }
+  .export-tile button { padding: 8px 15px; font-size: .88rem; }
+  .export-tile .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+  .export-tile .view-btn {
+    background: var(--panel-2); color: var(--accent-deep);
+    border: 1px solid var(--accent-mid); font-weight: 600;
+  }
+  .export-tile .view-btn:hover {
+    background: var(--accent-soft); border-color: var(--accent);
+  }
+
+  /* ================= in-browser data viewer ================= */
+  .dv-overlay {
+    position: fixed; inset: 0; z-index: 80;
+    background: rgba(13, 43, 30, .45); backdrop-filter: blur(3px);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .dv-overlay.show { display: flex; }
+  .dv-panel {
+    background: #fff; border-radius: 20px; box-shadow: var(--shadow-lg);
+    width: 96%; max-width: 1000px; max-height: 88vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .dv-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
+  }
+  .dv-head h3 { margin: 0; font-size: 1.08rem; letter-spacing: -.01em; }
+  .dv-head #dvCount { color: var(--muted); font-size: .82rem; margin-right: auto; }
+  #dvClose {
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    padding: 7px 14px; font-size: .85rem;
+  }
+  #dvSearch {
+    width: 240px; border: 1px solid var(--border-strong);
+    border-radius: 9px; padding: 8px 12px; font-size: .9rem;
+  }
+  .dv-body { overflow: auto; padding: 0 20px 20px; }
+  .dv-body table { min-width: 760px; font-size: .87rem; }
+  .dv-body th { position: sticky; top: 0; background: var(--panel-2); }
+  .dv-note { color: var(--muted); font-size: .74rem; padding: 6px 20px 0; }
 
   /* ================= tasks view ================= */
   .tasks-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -648,27 +689,42 @@
         <div class="export-tile">
           <div class="exp-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg></div>
           <b>Interested carriers</b><small>Everyone who agreed to hear more — your hot list.</small>
-          <button data-status="interested">Download</button>
+          <div class="btn-row">
+            <button class="dl-btn" data-status="interested">Download</button>
+            <button type="button" class="view-btn" data-status="interested">View in browser</button>
+          </div>
         </div>
         <div class="export-tile">
           <div class="exp-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg></div>
           <b>Callback requested</b><small>Carriers who asked you to call later.</small>
-          <button data-status="callback_requested">Download</button>
+          <div class="btn-row">
+            <button class="dl-btn" data-status="callback_requested">Download</button>
+            <button type="button" class="view-btn" data-status="callback_requested">View in browser</button>
+          </div>
         </div>
         <div class="export-tile">
           <div class="exp-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg></div>
           <b>Not interested</b><small>Declined — kept for records, not called again.</small>
-          <button data-status="not_interested">Download</button>
+          <div class="btn-row">
+            <button class="dl-btn" data-status="not_interested">Download</button>
+            <button type="button" class="view-btn" data-status="not_interested">View in browser</button>
+          </div>
         </div>
         <div class="export-tile">
           <div class="exp-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg></div>
           <b>Do not contact</b><small>Opt-outs. Respecting these is required by law.</small>
-          <button data-status="do_not_contact">Download</button>
+          <div class="btn-row">
+            <button class="dl-btn" data-status="do_not_contact">Download</button>
+            <button type="button" class="view-btn" data-status="do_not_contact">View in browser</button>
+          </div>
         </div>
         <div class="export-tile">
           <div class="exp-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg></div>
           <b>All leads</b><small>Complete list with every status.</small>
-          <button data-status="">Download</button>
+          <div class="btn-row">
+            <button class="dl-btn" data-status="">Download</button>
+            <button type="button" class="view-btn" data-status="">View in browser</button>
+          </div>
         </div>
       </div>
     </div>
@@ -694,6 +750,30 @@
       </table>
     </div>
   </section>
+</div>
+
+<!-- In-browser data viewer: see the export tables without downloading -->
+<div class="dv-overlay" id="dvModal">
+  <div class="dv-panel" role="dialog" aria-modal="true">
+    <div class="dv-head">
+      <h3 id="dvTitle">Carrier data</h3>
+      <span id="dvCount"></span>
+      <input id="dvSearch" type="text" placeholder="Search USDOT, company, phone">
+      <button id="dvClose" type="button">Close</button>
+    </div>
+    <div class="dv-body">
+      <div id="dvEmpty" class="empty-state" style="margin:18px 0">Loading...</div>
+      <table class="hidden" id="dvTable">
+        <thead><tr>
+          <th>USDOT</th><th>Company</th><th>Phone</th><th>Fleet</th>
+          <th>Score</th><th>Priority</th><th>Status</th><th>Follow-up</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="dvRows"></tbody>
+      </table>
+    </div>
+    <p class="dv-note">Same data as the Excel export, shown here so you do
+    not need to download anything. Top 300 rows listed.</p>
+  </div>
 </div>
 
 <!-- Due-task reminder alarm: rings when a task is due -->
@@ -1159,7 +1239,7 @@
   }
 
   /* ================= Excel exports ================= */
-  document.querySelectorAll(".export-tile button").forEach((btn) => {
+  document.querySelectorAll(".export-tile .dl-btn").forEach((btn) => {
     btn.onclick = async () => {
       if (!tokenVal()) {
         btn.textContent = "Save your token first";
@@ -1195,6 +1275,100 @@
         setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1600);
       }
     };
+  });
+
+  /* ================= in-browser data viewer ================= */
+  const dvCurrent = { rows: [] };
+
+  document.querySelectorAll(".export-tile .view-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const status = btn.dataset.status;
+      openDataViewer(
+        status,
+        btn.closest(".export-tile").querySelector("b").textContent
+      );
+    };
+  });
+
+  function openDataViewer(status, label) {
+    $("dvTitle").textContent = label || "Carrier data";
+    $("dvSearch").value = "";
+    dvCurrent.rows = [];
+    $("dvTable").classList.add("hidden");
+    $("dvRows").innerHTML = "";
+    $("dvCount").textContent = "";
+    $("dvEmpty").textContent = "Loading...";
+    $("dvEmpty").classList.remove("hidden");
+    $("dvModal").classList.add("show");
+    if (!tokenVal()) {
+      $("dvEmpty").textContent = "Save your admin token first (sidebar).";
+      return;
+    }
+    const url = "/export-data?limit=500" +
+      (status ? "&review_status=" + encodeURIComponent(status) : "");
+    fetch(url, { headers: authHeaders() })
+      .then((res) => res.ok ? res.json() : Promise.reject(res.status))
+      .then((body) => {
+        dvCurrent.rows = body.rows || [];
+        renderDataViewer();
+      })
+      .catch((err) => {
+        $("dvEmpty").textContent = typeof err === "number"
+          ? "Could not load data (error " + err + ")."
+          : "Could not load data: " + err;
+      });
+  }
+
+  function renderDataViewer() {
+    const rows = dvCurrent.rows;
+    $("dvCount").textContent = rows.length + " carriers";
+    $("dvEmpty").classList.add("hidden");
+    $("dvTable").classList.remove("hidden");
+    renderDvRows();
+  }
+
+  function renderDvRows() {
+    const q = $("dvSearch").value.trim().toLowerCase();
+    const filtered = q
+      ? dvCurrent.rows.filter((r) =>
+          String(r.usdot_number || "").toLowerCase().includes(q) ||
+          String(r.company_name || "").toLowerCase().includes(q) ||
+          String(r.phone || "").toLowerCase().includes(q))
+      : dvCurrent.rows;
+    $("dvCount").textContent = q
+      ? filtered.length + " of " + dvCurrent.rows.length + " carriers"
+      : dvCurrent.rows.length + " carriers";
+    const tbody = $("dvRows");
+    tbody.innerHTML = "";
+    for (const r of filtered.slice(0, 300)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + esc(r.usdot_number) + "</td>" +
+        "<td>" + esc(r.company_name) + "</td>" +
+        "<td>" + esc(r.phone) + "</td>" +
+        "<td>" + esc(r.vehicle_count) + "</td>" +
+        "<td>" + esc(r.lead_score) + "</td>" +
+        '<td class="prio ' + esc(r.priority) + '">' + esc(r.priority) + "</td>" +
+        "<td>" + esc(r.review_status) + "</td>" +
+        "<td>" + esc(String(r.follow_up_at || "").replace("T", " ").slice(0, 16)) + "</td>" +
+        "<td>" + esc(r.notes) + "</td>";
+      tbody.appendChild(tr);
+    }
+    if (!filtered.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="9" class="muted">No match.</td></tr>';
+    }
+  }
+
+  $("dvSearch").oninput = renderDvRows;
+
+  function closeDataViewer() {
+    $("dvModal").classList.remove("show");
+  }
+  $("dvClose").onclick = closeDataViewer;
+  // Click on the dimmed background closes; clicks on the panel do not.
+  $("dvModal").addEventListener("click", (e) => {
+    if (e.target === $("dvModal")) closeDataViewer();
   });
 
   /* ================= reminders / tasks ================= */
@@ -1469,6 +1643,11 @@
     const typing = document.activeElement
       && (document.activeElement.tagName === "INPUT"
           || document.activeElement.tagName === "TEXTAREA");
+    if (e.key === "Escape" && typeof closeDataViewer === "function"
+        && $("dvModal").classList.contains("show")) {
+      closeDataViewer();
+      return;
+    }
     if (e.key === "Escape" && sidebar.classList.contains("open")) {
       closeSidebar();
     }
