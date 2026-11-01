@@ -666,9 +666,6 @@ invalid_number, failed — covered by tests.
 > (left 0), Escape closes (left -306). Session-stub leakage
 > between evaluate runs recorded as the recurring pitfall:
 > `window.matchMedia` overrides and leftover classes survive until a
-> session-stub leakage
-> between evaluate runs recorded as the recurring pitfall:
-> `window.matchMedia` overrides and leftover classes survive until a
 > reload, so every media-dependent regression test starts with a
 > reload. Byte scan clean.
 >
@@ -695,6 +692,64 @@ invalid_number, failed — covered by tests.
 > status line lives in the upload card hidden by default and shows
 > text when used, topbar pill on, stored token present. Backend
 > untouched; no test count change (235 passed).
+>
+> **Telephony groundwork — settings page + dial-ready carrier list
+> (2026-11-01, commit 2a424b6):** operator request: provide a place
+> to enter telephony provider API credentials (openable from the
+> sidebar) and, once a provider exists, a carrier LIST on the call
+> console instead of ad-hoc dialing. Implemented safely ahead of
+> Phase 6 (real calls remain blocked until provider + approval):
+> (1) new `public.telephony_config` single-row table
+> (`provider, account_sid, auth_token, caller_id_number, status`)
+> created on startup; (2) admin-token endpoints: `POST
+> /admin/telephony` (save + upsert, provider whitelisted to twilio,
+> caller-id digit-validated, secrets stored server-side),
+> `GET /admin/telephony` (masked preview: sid shows only its last
+> four chars after `************`, raw token never leaves the
+> server, `live_calls_allowed` pinned False while startup still
+> guarantees OUTBOUND_CALL_MODE != live), `DELETE /admin/telephony`
+> (clear), `POST /admin/telephony/test` (bounded 8 s read-only check
+> against the provider's ACCOUNT API only — places no call; verified
+> live to reach Twilio and report a dummy credential 401 as
+> "Credentials rejected by the provider."), and
+> `GET /admin/telephony/dial-list` (carriers with a phone, excluding
+> latest review do_not_contact / not_interested, limit ≤ 100);
+> (3) new page `static/telephony.html` at `GET /telephony` (same
+> white-green design system) with fields Provider/Account SID/Auth
+> Token/Caller ID, Save, Test connection, Remove credentials, and a
+> masked saved-config card (browser shows only
+> `************aaaa`-style masks); token auto-loads from
+> sessionStorage/localStorage or the localhost bridge; (4) pipeline
+> sidebar gained a "Telephony API" anchor opening the page in a new
+> tab (side-link JS guard added for links without `data-view`);
+> (5) `call.html` gained a "Carriers to call" panel — search box
+> filters company/USDOT/phone client-side, per-row Call button
+> creates/resumes the session via the existing
+> `/call-sessions/outbound` and navigates to the returned
+> `auto_connect_url` (receiver console auto-connects, same flow as
+> today), and a note line states the telephony configuration state;
+> (6) BOM removed from the start of `call.html`. Tests: 14 new in
+> `tests/test_telephony_admin.py` (401s, provider whitelist 422,
+> caller-id digit rule, upsert SQL + params, masked GET asserting
+> neither token nor raw sid in the body, DELETE reset SQL,
+> test-refusal 409, account-API-only check, HTTPError→reason mapping
+> with the 8 s timeout asserted, dial-list bounds / exclusion-SQL /
+> params / shape, /telephony public shell). Full suite **248 passed /
+> 0 failed / 1 skipped** (DB-reachable test skipped while Docker was
+> down in that run; DB-dependent behavior re-verified live against
+> the container). Live-verified over HTTP: full
+> save→masked-GET→test→clear cycle (dummy creds → Twilio 401
+> "Credentials rejected by the provider."; no secret in any
+> response); dial list with 3 seeded carriers returned exactly the 2
+> dial-able ones (do-not-contact and phone-less carriers excluded);
+> browser checks: telephony page fields/buttons/"Not configured"
+> pill with token auto-loaded, call page "Carriers to call" panel
+> with note "Web console calling: the carrier receives Adam on this
+> page.", pipeline link opens a new tab and does not crash the
+> sidebar on click. Test rows deleted, config cleared, database left
+> empty per operator request. Docker needed a restart again after a
+> connection-timeout episode; byte scans clean on all three HTML
+> files (no emojis, no missing ids).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
