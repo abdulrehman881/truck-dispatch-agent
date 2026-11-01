@@ -100,42 +100,85 @@
   .menu-btn .ico {
     display: inline-flex; align-items: center; justify-content: center;
   }
-  .menu-panel {
-    position: absolute; top: 48px; left: 0; z-index: 40;
-    background: var(--panel); border: 1px solid var(--border-strong);
-    border-radius: var(--r-md); box-shadow: var(--shadow-lg);
-    padding: 8px; min-width: 250px;
+  .side-panel {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
+    width: 280px; color: #e9f3ec;
+    background: linear-gradient(180deg, #0d3b26, #0a2c1c);
+    border-right: 1px solid rgba(255, 255, 255, .08);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-102%);
+    transition: transform .22s ease;
+    display: flex; flex-direction: column;
+    padding: 18px 14px 16px;
+    overflow-y: auto;
   }
-  .menu-panel a {
-    display: block; padding: 10px 12px; border-radius: 9px;
-    color: var(--ink); text-decoration: none;
-    font-weight: 600; font-size: .92rem; line-height: 1.4;
-    transition: background var(--ease);
+  .side-panel.open { transform: translateX(0); }
+  .side-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, .1);
+    margin-bottom: 14px;
   }
-  .menu-panel a:hover { background: var(--accent-soft); }
-  .menu-panel a.active {
+  .side-head b { font-size: .95rem; letter-spacing: -.01em; color: #fff; }
+  .side-head button {
+    margin-left: auto;
+    background: rgba(255, 255, 255, .08);
+    color: #e9f3ec; border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 9px; width: 28px; height: 28px; flex: 0 0 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0;
+  }
+  .side-head button:hover { background: rgba(255, 255, 255, .18); }
+  .side-item {
+    display: flex; flex-direction: column; gap: 2px;
+    background: none; border: 1px solid transparent;
+    color: #dcefe3; text-align: left; font: inherit; font-weight: 600;
+    border-radius: 11px; padding: 11px 12px; margin-bottom: 4px;
+    text-decoration: none; font-size: .92rem; line-height: 1.35;
+    transition: all var(--ease);
+  }
+  .side-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+  .side-item.active {
     background: rgba(34, 197, 94, .18);
-    color: var(--accent-deep);
+    border-color: rgba(34, 197, 94, .5);
+    color: #ffffff;
   }
+  .side-item small { font-weight: 400; font-size: .72rem; color: #9db8a8; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <nav class="topnav">
     <button class="menu-btn" id="menuBtn" type="button"
-            title="Open the navigation menu">
+            title="Open the navigation sidebar">
       <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linecap="round" aria-hidden="true">
         <path d="M4 6h16M4 12h16M4 18h16"></path>
       </svg></span>
       Menu
     </button>
-    <div class="menu-panel hidden" id="menuPanel">
-      <a href="/pipeline">Operator console - chat and pipeline</a>
-      <a href="/call">Call console - carriers and Adam</a>
-      <a href="/telephony" class="active">Telephony API (this page)</a>
-    </div>
   </nav>
+  <aside class="side-panel" id="menuPanel" aria-hidden="true">
+    <div class="side-head">
+      <b>TruckDispatchAgent</b>
+      <button id="sideCloseBtn" type="button" title="Close the sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"></path>
+        </svg>
+      </button>
+    </div>
+    <a class="side-item" href="/pipeline">
+      Operator console - chat and pipeline
+    </a>
+    <a class="side-item" href="/call" target="_blank" rel="noopener">
+      Call console - carriers and Adam
+      <small>opens a new tab</small>
+    </a>
+    <a class="side-item active" href="/telephony">
+      Telephony API (this page)
+    </a>
+  </aside>
   <div class="page-head">
     <h1>Telephony API</h1>
     <p class="sub">Connect a calling provider so the call console can
@@ -337,18 +380,25 @@
     }
   };
 
-  /* ===== Menu (sidebar navigation for this page) ===== */
+  /* ===== Sidebar navigation: menu button opens the sidebar only;
+     pages are chosen inside the sidebar ===== */
   const menuPanel = $("menuPanel");
-  $("menuBtn").onclick = (e) => {
-    menuPanel.classList.toggle("hidden");
+  const menuBtn = $("menuBtn");
+  function closeSidebar() {
+    menuPanel.classList.remove("open");
+    menuPanel.setAttribute("aria-hidden", "true");
+  }
+  menuBtn.onclick = () => {
+    const open = !menuPanel.classList.contains("open");
+    menuPanel.classList.toggle("open", open);
+    menuPanel.setAttribute("aria-hidden", open ? "false" : "true");
   };
-  document.addEventListener("click", (e) => {
-    if (menuPanel.classList.contains("hidden")) return;
-    if (e.target.closest("#menuBtn") || e.target.closest("#menuPanel")) return;
-    menuPanel.classList.add("hidden");
+  $("sideCloseBtn").onclick = closeSidebar;
+  menuPanel.querySelectorAll(".side-item").forEach(item => {
+    item.onclick = () => closeSidebar();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") menuPanel.classList.add("hidden");
+    if (e.key === "Escape") closeSidebar();
   });
 
   loadStatus();
