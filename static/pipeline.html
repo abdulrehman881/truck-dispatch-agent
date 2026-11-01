@@ -131,32 +131,9 @@
   }
   #sideToggleBtn:hover { background: rgba(255, 255, 255, .18); }
 
-  .side-token {
-    background: rgba(255, 255, 255, .06);
-    border: 1px solid rgba(255, 255, 255, .12);
-    border-radius: var(--r-md);
-    padding: 12px 12px 12px;
-    margin: 0 2px 16px;
+  .upload-state {
+    margin: 8px 2px 0; font-size: .82rem; color: var(--muted);
   }
-  .side-token span {
-    display: block; font-size: .68rem; text-transform: uppercase;
-    letter-spacing: .09em; color: #9db8a8; font-weight: 700; margin-bottom: 8px;
-  }
-  .side-token input {
-    width: 100%; margin-bottom: 8px;
-    background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .18);
-    color: #fff; border-radius: 8px; padding: 8px 10px; font-size: .9rem;
-  }
-  .side-token input::placeholder { color: #86a396; }
-  .side-token input:focus { outline: none; border-color: #34d399; }
-  .side-token button {
-    width: 100%; background: #22c55e; color: #06281a;
-    border: none; border-radius: 8px; padding: 8px 16px;
-    font-size: .86rem; font-weight: 700; cursor: pointer;
-    transition: background var(--ease);
-  }
-  .side-token button:hover { background: #34d399; }
-  .side-token .tokstate { color: #9db8a8; font-size: .75rem; margin-top: 7px; }
 
   .side-group {
     font-size: .68rem; text-transform: uppercase; letter-spacing: .1em;
@@ -600,13 +577,6 @@
     </button>
   </div>
 
-  <div class="side-token">
-    <span>Admin token</span>
-    <input id="token" type="password" placeholder="Paste your admin token">
-    <button id="saveToken">Save</button>
-    <div class="tokstate" id="tokenState">Kept in this tab only.</div>
-  </div>
-
   <div class="side-group">Functions</div>
   <button class="side-link active" data-view="chat">
     <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5c-1.6 0-3.2-.5-4.5-1.3L3 20l1.3-5A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"></path></svg></span>
@@ -698,6 +668,7 @@
         </label>
         <button id="start" disabled>Run pipeline</button>
       </div>
+      <p class="upload-state hidden" id="tokenState"></p>
     </div>
 
     <div class="card hidden" id="progressCard">
@@ -923,13 +894,6 @@
     const t = tokenVal();
     return t ? {"Authorization": "Bearer " + t} : {};
   }
-  $("saveToken").onclick = () => {
-    const t = $("token").value.trim();
-    sessionStorage.setItem("admin_token", t);
-    try { localStorage.setItem("admin_token", t); } catch {}
-    $("tokenState").textContent = "Token saved (keeps working after browser restart).";
-    loadTasks();
-  };
 
   /* ================= PDF upload ================= */
   const drop = $("drop");
@@ -965,7 +929,7 @@
 
   startBtn.onclick = async () => {
     if (!selectedFile) return;
-    if (!tokenVal()) { tokenNote("Save your admin token first (open the sidebar)."); return; }
+    if (!tokenVal()) { tokenNote("Admin token required — reload this page on the office computer to load it."); return; }
     startBtn.disabled = true;
     tokenNote("Uploading…");
 
@@ -978,7 +942,7 @@
       const res = await fetch("/pipeline/upload", {method: "POST", headers: authHeaders(), body: form});
       const body = await res.json().catch(() => ({}));
       if (res.status === 401 || res.status === 503) {
-        tokenNote(body.detail || "Admin token required — save it in the sidebar first.");
+        tokenNote(body.detail || "Admin token required — reload this page on the office computer.");
         startBtn.disabled = false;
         return;
       }
@@ -997,7 +961,10 @@
     }
   };
 
-  function tokenNote(text) { stateEl.textContent = text; }
+  function tokenNote(text) {
+    stateEl.textContent = text;
+    stateEl.classList.toggle("hidden", !text);
+  }
 
   const STAGE_ORDER = ["extract", "prepare", "verify", "qualify", "import"];
   const stageEls = {};
@@ -1699,29 +1666,32 @@
   loadTasks();
   setInterval(loadTasks, 30000);
 
-  // Pre-fill the token box from this tab or a previous browser session
-  if (tokenVal()) {
-    $("token").value = tokenVal();
-    tokenNote("Token active (restored from a previous visit).");
-    $("topStatus").classList.add("on");
-  } else {
-    // Bootstrap: no saved token — ask the local server (localhost only)
-    // to hand it over, so the operator never retypes it.
+  // The token is managed invisibly: saved from a previous visit or
+  // handed over by the local server (localhost only), so the operator
+  // never sees or retypes it. Every load re-checks with the server so
+  // a saved-but-changed token heals itself.
+  (function initToken() {
+    if (tokenVal()) {
+      tokenNote("");            // reserve the line; no visible text
+      $("topStatus").classList.add("on");
+    }
     fetch("/admin/api-token")
       .then(r => r.ok ? r.json() : null)
       .then(body => {
         if (body && body.api_token) {
-          sessionStorage.setItem("admin_token", body.api_token);
-          try { localStorage.setItem("admin_token", body.api_token); } catch {}
-          $("token").value = body.api_token;
-          tokenNote("Token loaded from the server automatically.");
+          if (tokenVal() !== body.api_token) {
+            sessionStorage.setItem("admin_token", body.api_token);
+            try { localStorage.setItem("admin_token", body.api_token); } catch {}
+          }
+          tokenNote("");
           $("topStatus").classList.add("on");
           loadTasks();
+        } else if (!tokenVal()) {
+          tokenNote("");         // page shell loads without admin data
         }
       })
-      .catch(() => {/* server unreachable — manual save still works */});
-  }
-  $("saveToken").addEventListener("click", () => $("topStatus").classList.add("on"));
+      .catch(() => {/* server unreachable — a saved token still works */});
+  })();
 
   // Keyboard shortcuts: Escape closes the sidebar, "/" focuses chat.
   document.addEventListener("keydown", (e) => {
