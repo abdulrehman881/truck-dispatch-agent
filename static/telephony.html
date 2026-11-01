@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telephony API - TruckDispatchAgent</title>
+<style>
+  :root {
+    --bg: #f4f8f5; --panel: #ffffff; --panel-2: #f0f5f1;
+    --ink: #132e21; --muted: #6b7f74;
+    --border: #e3eae5; --border-strong: #c8d6cd;
+    --accent: #22c55e; --accent-deep: #16a34a; --accent-mid: #86efac;
+    --accent-soft: #eafaf1; --err: #dc2626; --warn: #b45309;
+    --shadow-sm: 0 1px 2px rgba(13, 43, 30, .06);
+    --shadow-lg: 0 18px 50px rgba(13, 43, 30, .14);
+    --r-lg: 16px; --r-md: 12px; --ease: .18s ease;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 15px; line-height: 1.55;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 26px 20px 60px; }
+  .page-head h1 { font-size: 1.7rem; letter-spacing: -.02em; margin: 0 0 6px; }
+  .page-head .sub { color: var(--muted); margin: 0 0 22px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+    padding: 20px; margin-bottom: 18px;
+  }
+  .card-title { font-size: 1.08rem; margin: 0 0 6px; letter-spacing: -.01em; }
+  .card .hint { color: var(--muted); font-size: .85rem; margin: 0 0 14px; }
+  label.field { display: block; margin-bottom: 14px; }
+  label.field span {
+    display: block; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--muted); font-weight: 700;
+    margin-bottom: 6px;
+  }
+  input, select {
+    width: 100%; border: 1px solid var(--border-strong);
+    border-radius: 10px; background: #fff; color: var(--ink);
+    padding: 10px 12px; font-size: .95rem; font: inherit;
+  }
+  input:focus, select:focus {
+    outline: none; border-color: var(--accent); background: #fff;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    background: var(--panel-2); color: var(--ink);
+    padding: 10px 18px; transition: all var(--ease);
+  }
+  button:hover { border-color: var(--accent-mid); }
+  button.primary {
+    background: var(--accent); border-color: var(--accent);
+    color: #06281a;
+  }
+  button.primary:hover { background: var(--accent-deep); color: #fff; }
+  button.danger { color: var(--err); border-color: #f3c1c1; }
+  button.danger:hover { background: #fdf0f0; border-color: var(--err); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .status-line { margin: 12px 0 0; font-size: .88rem; color: var(--muted); }
+  .status-line.err { color: var(--err); }
+  .status-line.okk { color: var(--accent-deep); }
+  .kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px 14px;
+        font-size: .92rem; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-weight: 600; word-break: break-all; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--accent-soft); color: var(--accent-deep);
+    border: 1px solid var(--accent-mid); border-radius: 999px;
+    padding: 4px 12px; font-size: .8rem; font-weight: 600;
+  }
+  .pill.off { background: #fdf0f0; color: var(--err); border-color: #f3c1c1; }
+  .note {
+    background: #fff8e8; border: 1px solid #f1e3bb;
+    border-radius: var(--r-md); padding: 12px 14px;
+    font-size: .86rem; color: #6b5518;
+  }
+  .empty-state {
+    color: var(--muted); text-align: center; padding: 22px 10px;
+    border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-head">
+    <h1>Telephony API</h1>
+    <p class="sub">Connect a calling provider so the call console can
+    show dial-ready carriers. Credentials are stored on the server and
+    are never shown to the browser again.</p>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Saved configuration</h2>
+    <p class="hint" id="loadedHint">Loading saved configuration...</p>
+    <dl class="kv" id="statusView">
+      <dt>Status</dt><dd><span class="pill off" id="confPill">Not configured</span></dd>
+      <dt>Provider</dt><dd id="confProvider">-</dd>
+      <dt>Account SID</dt><dd id="confSid">-</dd>
+      <dt>Caller ID</dt><dd id="confCaller">-</dd>
+      <dt>Updated</dt><dd id="confUpdated">-</dd>
+    </dl>
+    <div class="status-line" id="testLine"></div>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Enter provider credentials</h2>
+    <p class="hint">Saving does NOT start real calls. Outbound calling
+    stays disabled until live telephony is approved for use - this is
+    to protect against accidental spending.</p>
+
+    <label class="field">
+      <span>Provider</span>
+      <select id="provider">
+        <option value="twilio">Twilio</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Account SID</span>
+      <input id="accountSid" maxlength="64" autocomplete="off"
+             placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+    </label>
+    <label class="field">
+      <span>Auth Token</span>
+      <input id="authToken" maxlength="128" autocomplete="off"
+             type="password" placeholder="Provider secret token">
+    </label>
+    <label class="field">
+      <span>Caller ID number</span>
+      <input id="callerId" maxlength="24" autocomplete="off"
+             placeholder="Your calling number, e.g. +1 555 010 1234">
+    </label>
+    <div class="row">
+      <button class="primary" id="saveBtn">Save credentials</button>
+      <button id="testBtn" type="button">Test connection</button>
+      <button class="danger" id="clearBtn" type="button">Remove credentials</button>
+    </div>
+    <div class="status-line" id="formLine"></div>
+  </div>
+
+  <div class="note">
+    <b>Safety notes.</b> The credentials go to this server over your
+    local network and the browser never receives them back (only a
+    masked preview). "Test connection" only checks that the credentials
+    authenticate with the provider's account page - it places no call
+    to any carrier. When provider dialing is later approved, the call
+    console at /call will list carriers under "Carriers to call".
+  </div>
+  <div class="empty-state hidden" id="errorState">Could not reach the server.</div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function tokenVal() {
+    return sessionStorage.getItem("admin_token")
+      || localStorage.getItem("admin_token") || "";
+  }
+  const headers = () => tokenVal()
+    ? {"Authorization": "Bearer " + tokenVal()} : {};
+
+  function setLine(id, text, cls) {
+    const el = $(id);
+    el.textContent = text;
+    el.className = "status-line" + (cls ? " " + cls : "");
+  }
+
+  function renderStatus(body) {
+    const pill = $("confPill");
+    pill.textContent = body.configured
+      ? "Configured" : "Not configured";
+    pill.className = "pill" + (body.configured ? "" : " off");
+    $("confProvider").textContent = body.provider || "-";
+    $("confSid").textContent = body.account_sid_masked || "-";
+    $("confCaller").textContent = body.caller_id_number || "-";
+    $("confUpdated").textContent = body.updated_at || "-";
+    $("loadedHint").textContent = body.live_calls_allowed === true
+      ? "Live dialing is approved." : "Saved credentials are ready for later use.";
+  }
+
+  async function loadStatus() {
+    if (!tokenVal()) {
+      try {
+        const res = await fetch("/admin/api-token");
+        if (res.ok) {
+          const body = await res.json();
+          if (body.api_token) {
+            sessionStorage.setItem("admin_token", body.api_token);
+            try { localStorage.setItem("admin_token", body.api_token); } catch {}
+          }
+        }
+      } catch {}
+    }
+    try {
+      const res = await fetch("/admin/telephony", { headers: headers() });
+      if (res.status === 401) {
+        setLine("testLine", "Admin token missing or wrong.", "err");
+        $("errorState").classList.remove("hidden");
+        $("errorState").textContent = "Open the operator console first or reload on the office computer.";
+        return;
+      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      renderStatus(await res.json());
+    } catch (err) {
+      $("errorState").classList.remove("hidden");
+      $("errorState").textContent = "Could not load the configuration: " + err.message;
+    }
+  }
+
+  $("saveBtn").onclick = async (e) => {
+    const btn = e.target;
+    const label = btn.textContent;
+    setLine("formLine", "Saving...");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/admin/telephony", {
+        method: "POST",
+        headers: Object.assign({"Content-Type": "application/json"}, headers()),
+        body: JSON.stringify({
+          provider: $("provider").value,
+          account_sid: $("accountSid").value.trim(),
+          auth_token: $("authToken").value.trim(),
+          caller_id_number: $("callerId").value.trim(),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLine("formLine", body.detail || ("Save failed (HTTP " + res.status + ")."), "err");
+        return;
+      }
+      setLine("formLine", body.message || "Saved.", "okk");
+      loadStatus();
+    } catch (err) {
+      setLine("formLine", "Save failed: " + err.message, "err");
+    } finally {
+      setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1200);
+    }
+  };
+
+  $("testBtn").onclick = async (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    setLine("testLine", "Checking with the provider (no call is placed)...");
+    try {
+      const res = await fetch("/admin/telephony/test", {
+        method: "POST", headers: headers(),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLine("testLine", body.detail || ("Test failed (HTTP " + res.status + ")."), "err");
+        return;
+      }
+      setLine("testLine", body.ok
+        ? "Credentials accepted by " + (body.account_friendly_name || "the provider") + "."
+        : "Not verified: " + (body.reason || "provider could not confirm."),
+        body.ok ? "okk" : "err");
+    } catch (err) {
+      setLine("testLine", "Test could not run: " + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  $("clearBtn").onclick = async () => {
+    if (!confirm("Remove the stored telephony credentials?")) return;
+    try {
+      const res = await fetch("/admin/telephony", {
+        method: "DELETE", headers: headers(),
+      });
+      if (res.status === 401) {
+        setLine("formLine", "Admin token missing or wrong.", "err");
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setLine("formLine", body.detail || ("Could not clear (HTTP " + res.status + ")."), "err");
+        return;
+      }
+      $("accountSid").value = ""; $("authToken").value = "";
+      setLine("formLine", "Credentials removed.", "okk");
+      loadStatus();
+    } catch (err) {
+      setLine("formLine", "Could not clear: " + err.message, "err");
+    }
+  };
+
+  loadStatus();
+</script>
+</body>
+</html>

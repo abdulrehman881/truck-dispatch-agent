@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -181,6 +181,20 @@
     border-radius: var(--r-lg); padding: 16px; box-shadow: var(--shadow-md);
   }
   .recent h2 { font-size: .95rem; margin: 0 0 8px; letter-spacing: -.01em; }
+  .dial-search {
+    width: 100%; margin: 0 0 10px; border: 1px solid var(--border-strong);
+    border-radius: 9px; padding: 8px 10px; font-size: .88rem; font: inherit;
+    background: #fff; color: var(--ink);
+  }
+  .dial-search:focus { outline: none; border-color: var(--accent); }
+  .dial-call-btn {
+    font-size: .78rem; font-weight: 700; cursor: pointer;
+    background: var(--accent); color: #06281a;
+    border: 1px solid var(--accent); border-radius: 8px;
+    padding: 5px 12px; transition: all var(--ease);
+  }
+  .dial-call-btn:hover { background: var(--accent-deep); color: #fff; }
+  .dial-call-btn:disabled { opacity: .5; cursor: not-allowed; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; }
@@ -327,9 +341,22 @@
         </form>
       </div>
 
-      <!-- Hang up + recent callers -->
+      <!-- Hang up + carrier dial list + recent callers -->
       <div class="side-col">
         <button id="hangupBtn" class="danger hidden">Hang up the call</button>
+
+        <div class="recent">
+          <h2>Carriers to call</h2>
+          <input id="dialSearch" type="text" maxlength="100"
+                 class="dial-search" placeholder="Search company or USDOT">
+          <table>
+            <thead><tr><th>Carrier</th><th>Status</th><th></th></tr></thead>
+            <tbody id="dialRows">
+              <tr><td colspan="3" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+          <p class="muted" id="dialNote" style="font-size:.78rem;margin:8px 0 0"></p>
+        </div>
 
         <div class="recent">
           <h2>Recent callers</h2>
@@ -366,6 +393,7 @@ fetch("/admin/api-token")
       sessionStorage.setItem("admin_token", token);
       try { localStorage.setItem("admin_token", token); } catch {}
       loadRecent();
+      loadDialList();
     }
   })
   .catch(() => {/* server unreachable — the prompt fallback still works */});
@@ -382,6 +410,110 @@ function tokenMissing() {
   }
   return false;
 }
+
+/* ===== Carriers to call: dial-ready list from the pipeline leads ===== */
+let dialAll = [];        // full list from the server
+let telephonyLive = null; // masked status fetched once
+
+function renderDialList() {
+  const q = ($("dialSearch").value || "").trim().toLowerCase();
+  const rows = q
+    ? dialAll.filter(c =>
+        String(c.company_name || "").toLowerCase().includes(q) ||
+        String(c.usdot_number || "").toLowerCase().includes(q) ||
+        String(c.phone || "").toLowerCase().includes(q))
+    : dialAll;
+  const tbody = $("dialRows");
+  tbody.innerHTML = "";
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="3" class="muted">' +
+      (dialAll.length ? "No match." : "No dial-ready carriers yet. Import leads in the operator console.") +
+      "</td></tr>";
+    return;
+  }
+  rows.slice(0, 50).forEach(c => {
+    const tr = document.createElement("tr");
+    const company = document.createElement("td");
+    company.textContent = c.company_name || c.usdot_number || "Unknown";
+    const status = document.createElement("td");
+    status.textContent = c.latest_review_status || "new";
+    const cell = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "dial-call-btn";
+    btn.type = "button";
+    btn.textContent = "Call";
+    btn.title = "Open the call console with this carrier";
+    btn.onclick = () => dialCarrier(c, btn);
+    cell.appendChild(btn);
+    tr.append(company, status, cell);
+    tbody.appendChild(tr);
+  });
+  if (rows.length > 50) {
+    $("dialNote").textContent = "Showing the top " + dialAll.length + " of " + rows.length + " matches.";
+  } else if ($("dialNote").dataset.base) {
+    $("dialNote").textContent = $("dialNote").dataset.base;
+  }
+}
+
+async function dialCarrier(carrier, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Ringing...";
+  try {
+    const res = await fetch("/call-sessions/outbound", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        usdot_number: carrier.usdot_number || "",
+        phone: carrier.phone || "",
+        company_name: carrier.company_name || "",
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      btn.textContent = label;
+      btn.disabled = false;
+      if (tokenMissing()) dialCarrier(carrier, btn);
+      return;
+    }
+    if (!res.ok || !body.auto_connect_url) {
+      showStatus(body.detail || ("Could not start the call (HTTP " + res.status + ")."));
+      btn.textContent = label;
+      btn.disabled = false;
+      return;
+    }
+    // Connect the receiver console to this carrier's session right here.
+    location.href = body.auto_connect_url;
+  } catch (err) {
+    showStatus("Could not start the call: " + err.message);
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+}
+
+function loadDialList() {
+  if (!token) return;
+  fetch("/admin/telephony/dial-list?limit=50", { headers: authHeaders() })
+    .then(res => res.ok ? res.json() : Promise.reject(res.status))
+    .then(body => {
+      dialAll = body.carriers || [];
+      telephonyLive = body.telephony || null;
+      const note = $("dialNote");
+      note.dataset.base = telephonyLive && telephonyLive.configured
+        ? "Telephony (" + telephonyLive.provider + ") configured - list ready. Live dialing starts only after operator approval."
+        : "Web console calling: the carrier receives Adam on this page.";
+      note.textContent = note.dataset.base;
+      renderDialList();
+    })
+    .catch(() => {
+      $("dialRows").innerHTML =
+        '<tr><td colspan="3" class="muted">Dial list unavailable.</td></tr>';
+    });
+}
+
+$("dialSearch").addEventListener("input", renderDialList);
+
 
 let sessionId = null;
 let timerId = null;
@@ -752,6 +884,7 @@ async function loadRecent() {
 }
 
 loadRecent();
+loadDialList();
 
 // ==== Agent call incoming → ring first, driver chooses to answer ====
 (function initAutoConnect() {

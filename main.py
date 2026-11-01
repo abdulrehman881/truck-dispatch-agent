@@ -25,6 +25,8 @@ from elevenlabs.client import ElevenLabs
 import tempfile
 from starlette.background import BackgroundTask
 from urllib.parse import quote
+import urllib.error
+import urllib.request
 import json
 import base64
 import re
@@ -2202,11 +2204,357 @@ def get_call_sessions(limit: int = 20):
 def _ensure_call_tables_on_startup():
     try:
         ensure_call_tables()
+        ensure_telephony_table()
     except Exception as error:
         log_event(
             "call_tables_schema_error",
             error=f"{type(error).__name__}: {error}",
         )
+
+
+# --------------------------------------------------
+# Telephony provider configuration (Phase 6 groundwork)
+# --------------------------------------------------
+# Operators enter provider credentials on the /telephony page. They
+# are stored in the database and are NEVER returned by the API —
+# masked previews only. Saving does NOT enable real calls: outbound
+# calling stays on the browser console until the runtime is switched
+# to a live-capable mode with explicit operator approval.
+
+TELEPHONY_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS public.telephony_config (
+        id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        provider TEXT NOT NULL DEFAULT '',
+        account_sid TEXT NOT NULL DEFAULT '',
+        auth_token TEXT NOT NULL DEFAULT '',
+        caller_id_number TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'not_configured',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+)
+
+SUPPORTED_TELEPHONY_PROVIDERS = {"twilio"}
+
+
+def ensure_telephony_table():
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            for statement in TELEPHONY_DDL:
+                cur.execute(statement)
+            cur.execute(
+                "INSERT INTO public.telephony_config (id) "
+                "VALUES (1) ON CONFLICT (id) DO NOTHING"
+            )
+
+
+def _mask_secret(value: str, keep: int = 4) -> str:
+    text = str(value or "")
+    if len(text) <= keep:
+        return "*" * max(len(text), 1)
+    return "*" * 12 + text[-keep:]
+
+
+class TelephonyConfigRequest(BaseModel):
+    provider: str = Field(min_length=1, max_length=40)
+    account_sid: str = Field(min_length=4, max_length=64)
+    auth_token: str = Field(min_length=8, max_length=128)
+    caller_id_number: str = Field(min_length=4, max_length=24)
+
+
+def load_telephony_config() -> dict | None:
+    """Read the stored provider row (agent side only, secrets inside)."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT provider, account_sid, auth_token,
+                           caller_id_number, status, updated_at
+                    FROM public.telephony_config WHERE id = 1
+                    """
+                )
+                row = cur.fetchone()
+    except Exception as error:
+        log_event(
+            "telephony_config_read_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+        return None
+    if not row:
+        return None
+    return {
+        "provider": row[0] or "",
+        "account_sid": row[1] or "",
+        "auth_token": row[2] or "",
+        "caller_id_number": row[3] or "",
+        "status": row[4] or "not_configured",
+        "updated_at": _iso(row[5]),
+    }
+
+
+def _teleonomy_status_dict(config: dict | None) -> dict:
+    """Public view: masked values, never the raw secrets."""
+    if not config or not config.get("provider"):
+        return {
+            "configured": False,
+            "provider": None,
+            "account_sid_masked": None,
+            "caller_id_number": None,
+            "status": "not_configured",
+            "updated_at": None,
+            "live_calls_allowed": False,
+        }
+    return {
+        "configured": True,
+        "provider": config["provider"],
+        "account_sid_masked": _mask_secret(config["account_sid"]),
+        "caller_id_number": config["caller_id_number"] or None,
+        "status": config["status"],
+        "updated_at": config["updated_at"],
+        # Real calls stay refused in this build (mode is offline and a
+        # startup guard blocks OUTBOUND_CALL_MODE=live), so this flag
+        # is always False until that is consciously changed.
+        "live_calls_allowed": False,
+    }
+
+
+def _provider_status_check(provider, account_sid, auth_token) -> dict:
+    """Bounded, read-only credential check — networks touch nothing."""
+    if provider != "twilio":
+        return {"ok": False, "reason": "Unknown provider."}
+    url = (
+        "https://api.twilio.com/2010-04-01/Accounts/"
+        + urllib.parse.quote(str(account_sid))
+        + ".json"
+    )
+    request = urllib.request.Request(url)
+    credentials = (
+        base64.b64encode(
+            (str(account_sid) + ":" + str(auth_token)).encode()
+        ).decode()
+    )
+    request.add_header("Authorization", "Basic " + credentials)
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            return {
+                "ok": True,
+                "http_status": response.status,
+                "account_friendly_name": body.get("friendly_name"),
+                "account_status": body.get("status"),
+            }
+    except urllib.error.HTTPError as error:
+        return {"ok": False, "http_status": error.code,
+                "reason": "Credentials rejected by the provider."}
+    except Exception as error:
+        return {"ok": False, "reason": "Could not reach the provider: "
+                + f"{type(error).__name__}"}
+
+
+@app.get("/admin/telephony", dependencies=[Depends(require_admin)])
+def get_telephony_config():
+    """Masked telephony status — secrets never leave the server."""
+    return _teleonomy_status_dict(load_telephony_config())
+
+
+@app.post("/admin/telephony", dependencies=[Depends(require_admin)])
+def save_telephony_config(request: TelephonyConfigRequest):
+    """Store provider credentials for later Phase 6 use."""
+    provider = request.provider.strip().lower()
+    if provider not in SUPPORTED_TELEPHONY_PROVIDERS:
+        raise HTTPException(
+            status_code=422,
+            detail="Supported providers: "
+            + ", ".join(sorted(SUPPORTED_TELEPHONY_PROVIDERS)) + ".",
+        )
+    caller = _digits(request.caller_id_number)
+    if len(caller) < 4:
+        raise HTTPException(
+            status_code=422,
+            detail="Caller ID number must include at least 4 digits.",
+        )
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO public.telephony_config
+                        (id, provider, account_sid, auth_token,
+                         caller_id_number, status)
+                    VALUES (1, %s, %s, %s, %s, 'configured')
+                    ON CONFLICT (id) DO UPDATE SET
+                        provider = EXCLUDED.provider,
+                        account_sid = EXCLUDED.account_sid,
+                        auth_token = EXCLUDED.auth_token,
+                        caller_id_number = EXCLUDED.caller_id_number,
+                        status = 'configured',
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (provider, request.account_sid.strip(),
+                     request.auth_token.strip(), caller),
+                )
+    except Exception as error:
+        log_event(
+            "telephony_config_save_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save the telephony configuration.",
+        ) from error
+    log_event(
+        "telephony_config_saved",
+        provider=provider,
+        caller_id_last4=caller[-4:],
+        note="Secrets stored server-side; live dialing remains disabled.",
+    )
+    return {
+        "saved": True,
+        "message": "Telephony credentials saved. Real dialing stays "
+        "disabled until outbound calling is approved for live use.",
+    }
+
+
+@app.delete("/admin/telephony", dependencies=[Depends(require_admin)])
+def clear_telephony_config():
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE public.telephony_config
+                    SET provider = '', account_sid = '', auth_token = '',
+                        caller_id_number = '', status = 'not_configured',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                    """
+                )
+    except Exception as error:
+        log_event(
+            "telephony_config_clear_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Could not clear the telephony configuration.",
+        ) from error
+    log_event("telephony_config_cleared")
+    return {"cleared": True, **_teleonomy_status_dict(None)}
+
+
+@app.post("/admin/telephony/test", dependencies=[Depends(require_admin)])
+def test_telephony_config():
+    """Bounded, read-only credential check against the provider.
+
+    Places no call, sends nothing to carriers — only verifies that the
+    stored credentials authenticate with the provider's account API.
+    """
+    config = load_telephony_config()
+    if not config or not config.get("provider"):
+        raise HTTPException(
+            status_code=409,
+            detail="No telephony provider is configured yet.",
+        )
+    result = _provider_status_check(
+        config["provider"], config["account_sid"], config["auth_token"]
+    )
+    log_event(
+        "telephony_config_tested",
+        provider=config["provider"],
+        ok=result.get("ok"),
+    )
+    return result
+
+
+@app.get("/admin/telephony/dial-list", dependencies=[Depends(require_admin)])
+def telephony_dial_list(q: str = Query(default="", max_length=100),
+                        limit: int = 25):
+    """Carriers shown in the call console's list, dial-ready.
+
+    Excludes do-not-contact and not-interested carriers and entries
+    without a phone number so only sensible call targets appear.
+    """
+    if not 1 <= limit <= 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 100.",
+        )
+    term = f"%{q.strip()}%"
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        c.usdot_number,
+                        c.company_name,
+                        c.phone,
+                        c.lead_score,
+                        c.priority,
+                        r.review_status
+                    FROM public.carrier_leads AS c
+                    LEFT JOIN LATERAL (
+                        SELECT review_status
+                        FROM public.carrier_reviews
+                        WHERE usdot_number = c.usdot_number
+                        ORDER BY reviewed_at DESC, id DESC
+                        LIMIT 1
+                    ) AS r ON TRUE
+                    WHERE c.phone IS NOT NULL AND c.phone <> ''
+                      AND (%s = ''
+                           OR c.company_name ILIKE %s
+                           OR c.usdot_number ILIKE %s)
+                      AND COALESCE(r.review_status, '')
+                          NOT IN ('do_not_contact', 'not_interested')
+                    ORDER BY
+                        CASE c.priority
+                            WHEN 'high' THEN 1
+                            WHEN 'medium' THEN 2
+                            ELSE 3
+                        END,
+                        c.lead_score DESC NULLS LAST
+                    LIMIT %s
+                    """,
+                    (q.strip(), term, term, limit),
+                )
+                rows = cur.fetchall()
+    except Exception as error:
+        log_event(
+            "telephony_dial_list_error",
+            error=f"{type(error).__name__}: {error}",
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Could not load the dial list.",
+        ) from error
+    carriers = [
+        {
+            "usdot_number": row[0],
+            "company_name": row[1],
+            "phone": row[2],
+            "lead_score": row[3],
+            "priority": row[4],
+            "latest_review_status": row[5],
+        }
+        for row in rows
+    ]
+    telephony = _teleonomy_status_dict(load_telephony_config())
+    return {
+        "count": len(carriers),
+        "telephony": telephony,
+        "carriers": carriers,
+    }
+
+
+@app.get("/telephony", include_in_schema=False)
+def telephony_page():
+    telephony_html = PROJECT_ROOT / "static" / "telephony.html"
+    if not telephony_html.is_file():
+        raise HTTPException(status_code=404, detail="Page not found.")
+    return FileResponse(telephony_html, media_type="text/html")
+
 
 
 # --------------------------------------------------
