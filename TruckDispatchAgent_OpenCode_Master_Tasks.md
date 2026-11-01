@@ -621,6 +621,31 @@ invalid_number, failed — covered by tests.
 > browser — menu button should now collapse/expand and remember his
 > choice. Backend untouched; no test count change (suite last ran
 > 235 passed).
+>
+> **Found the real wide-screen cause (2026-11-01, commit 1d01ecf):**
+> the operator's screenshot showed the sidebar still permanently open
+> with no hamburger even after the toggle logic WAS being served
+> ("operator console" title visibly cut at its left edge). Root
+> cause: `.topbar` is a direct child of `<body>` spanning the FULL
+> window width, so on wide screens the pinned sidebar (z-index 60)
+> covered the topbar (z-index 40) — the rendered
+> `#menuBtn` sat underneath the sidebar and could never be seen or
+> clicked. Fix inside the ≥1150 px block: `.topbar { margin-left:
+> 300px }` moves the whole bar right of the sidebar, `body.side-closed
+> .topbar { margin-left: 0 }` restores the full width when the
+> sidebar is collapsed. Browser-verified in a wide simulation with
+> the replicated media CSS: sidebar open -> menu button at left 330
+> (clear of the 300 px sidebar, on-screen, clickable), topbar at 300;
+> collapse -> menu button back at left 30, topbar at 0, sidebar at
+> -306, `side_desktop`="closed"; Escape collapse and re-open via the
+> button both work. Narrow-mode regression re-checked after the CSS
+> edit (hamburger opens, Escape closes, viewport untouched). Byte
+> scan clean. This ALSO clears the cache suspicion for the operator:
+> his browser had fetched the page before the first fix was served,
+> and the earlier no-cache header (commit e05269c) makes every future
+> load revalidate automatically. Operator still needs ONE normal
+> refresh (F5) to pick up the corrected page; afterwards reloads
+> always serve fresh code.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
