@@ -515,9 +515,14 @@
       box-shadow: var(--shadow-lg);
     }
     body.side-closed .wrap { margin-left: 0; }
+    /* The topbar is a body child spanning the full width: shift it
+       right of the pinned sidebar (its menu button would otherwise
+       sit underneath the sidebar), and back to full width when the
+       sidebar is collapsed. */
+    .topbar { margin-left: 300px; padding-left: 30px; }
+    body.side-closed .topbar { margin-left: 0; padding-left: 30px; }
     .overlayish { display: none !important; }
     .wrap { margin-left: 300px; max-width: 1060px; padding-left: 30px; padding-right: 30px; }
-    .topbar { padding-left: 30px; }
   }
   @media (max-width: 620px) {
     .wrap { padding: 20px 12px 50px; }
