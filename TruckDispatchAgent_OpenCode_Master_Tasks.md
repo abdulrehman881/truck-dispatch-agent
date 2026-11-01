@@ -666,8 +666,35 @@ invalid_number, failed — covered by tests.
 > (left 0), Escape closes (left -306). Session-stub leakage
 > between evaluate runs recorded as the recurring pitfall:
 > `window.matchMedia` overrides and leftover classes survive until a
+> session-stub leakage
+> between evaluate runs recorded as the recurring pitfall:
+> `window.matchMedia` overrides and leftover classes survive until a
 > reload, so every media-dependent regression test starts with a
 > reload. Byte scan clean.
+>
+> **Visible admin token box removed (2026-11-01, commit 28c989c):**
+> operator request: since the token is saved permanently, do not show
+> it. The `.side-token` block (label, password input, Save button,
+> status line) is gone from the pipeline sidebar along with its CSS,
+> and `#saveToken` handlers were deleted. `#tokenState` was kept as
+> the id but repurposed into a small `upload-state` line inside the
+> Upload card (visible only when `tokenNote()` has something to say
+> — "Uploading…", "Pipeline running (job …)", 401 notices), so all
+> existing progress messaging kept working without further JS
+> changes; `tokenNote("")` now re-hides the line. Token management
+> became fully invisible and self-healing: every page load re-checks
+> `GET /admin/api-token` (localhost only) and overwrites the stored
+> token if the server's differs — previously a bypass conditional
+> meant a stale saved token could silently 401 forever with no UI to
+> fix it; now the server guess wins while reachable. Wording for
+> missing-token cases updated ("reload this page on the office
+> computer"). The topbar "Agent token active" pill remains the
+> single visible token indicator. `call.html` already had no visible
+> token box (prompt fallback only on 401) — untouched. Browser
+> verified on a fresh reload: sidebar no longer mentions token, the
+> status line lives in the upload card hidden by default and shows
+> text when used, topbar pill on, stored token present. Backend
+> untouched; no test count change (235 passed).
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
