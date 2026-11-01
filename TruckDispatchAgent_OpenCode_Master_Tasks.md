@@ -646,6 +646,28 @@ invalid_number, failed — covered by tests.
 > load revalidate automatically. Operator still needs ONE normal
 > refresh (F5) to pick up the corrected page; afterwards reloads
 > always serve fresh code.
+>
+> **Menu button lives ON the sidebar when open (2026-11-01, commit
+> 13061b5):** operator request: when the sidebar is open, the toggle
+> should sit on the sidebar itself, not on the main page. Added
+> `#sideToggleBtn` inside `.side-head` (Adam header, white outline
+> square with the same hamburger SVG, right-aligned via
+> `margin-left: auto`). Base CSS keeps it `display: none`; the
+> ≥1150 px block shows it and hides the topbar button while the
+> sidebar is pinned open (`body:not(.side-closed) #menuBtn
+> { display: none }`), so the button swaps panels by state with zero
+> JS: sidebar open -> button visible inside the sidebar head
+> (verified inside the sidebar box 0-300 px, head row); clicking it
+> collapses the sidebar and the topbar button reappears; clicking
+> the topbar button expands the sidebar and the in-panel button
+> returns (persists "open"/"closed"); Escape still collapses.
+> Narrow-mode regression re-verified on a genuinely fresh page (no
+> session stubs): in-panel button hidden, topbar hamburger opens
+> (left 0), Escape closes (left -306). Session-stub leakage
+> between evaluate runs recorded as the recurring pitfall:
+> `window.matchMedia` overrides and leftover classes survive until a
+> reload, so every media-dependent regression test starts with a
+> reload. Byte scan clean.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
