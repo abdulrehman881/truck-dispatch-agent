@@ -45,7 +45,6 @@ def test_assistant_requires_token():
     ],
 )
 def test_destructive_or_costly_requests_are_refused(message, monkeypatch):
-    # No planning/model call may happen for refused messages.
     def _explode(msg):
         raise AssertionError("planner must not run for refused requests")
 
@@ -213,7 +212,6 @@ def test_save_review_passes_follow_up_for_callback(monkeypatch):
 
 
 def test_callback_without_follow_up_is_rejected(monkeypatch):
-    # Use the real save_carrier_review: it rejects before touching the DB.
     monkeypatch.setattr(
         main,
         "plan_assistant_action",
@@ -390,9 +388,6 @@ def test_pipeline_status_without_jobs(monkeypatch):
     assert "No pipeline job found" in body["reply"]
 
 
-# --------------------------------------------------
-# Planner: model JSON parsing and fallback behaviour
-# --------------------------------------------------
 
 class _FakeCompletions:
     def __init__(self, content):
@@ -428,7 +423,6 @@ def test_planner_rejects_unknown_action(monkeypatch):
     )
 
     plan = main.plan_assistant_action("please delete everything")
-    # Unknown actions never pass: fallback only maps to known actions.
     assert plan["action"] in main.ASSISTANT_ACTIONS
 
 
@@ -485,9 +479,6 @@ def test_unsupported_action_raises():
         main.execute_assistant_action("nonsense", {}, "conv")
 
 
-# --------------------------------------------------
-# "Let me talk to you" is a chat request, never a carrier call
-# --------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -524,7 +515,6 @@ def test_fallback_pronoun_call_targets_are_chat_not_calls(message):
 
 
 def test_fallback_talk_phrases_do_not_shadow_real_actions():
-    # Concrete actions must still win when the message names one.
     assert main._assistant_fallback_plan("show metrics")["action"] == "metrics"
     assert (
         main._assistant_fallback_plan("search XPO carriers")["action"]
@@ -553,9 +543,7 @@ def test_execute_just_chat_empty_reply_gets_default():
 
 
 def test_execute_pronoun_outbound_call_redirects_to_chat(monkeypatch):
-    # Even if the model plans place_outbound_call with a pronoun target,
-    # no call session may be created.
-    def _explode(*a, **k):  # begin_call must never run
+    def _explode(*a, **k):
         raise AssertionError("begin_call must not run for pronoun targets")
 
     monkeypatch.setattr(main, "begin_call", _explode)

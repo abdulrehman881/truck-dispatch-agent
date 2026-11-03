@@ -11,9 +11,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import requests  # noqa: E402
+import requests
 
-from src import verify_carriers  # noqa: E402
+from src import verify_carriers
 
 
 class FakeResponse:
@@ -83,9 +83,7 @@ def test_phone_number_is_not_fabricated_when_missing():
     session = FakeSession(_carrier(telephone=None))
     result = verify_carriers.verify_carrier(session, CANDIDATE, "key")
 
-    # Falls back to the source phone, never to an invented value.
     assert result["official_phone"] is None
-    # Operations field stays structured, not turned into text.
     assert result["carrier_operation"]["code"] == "C"
 
 
@@ -106,7 +104,7 @@ def test_http_error_recorded_without_exposing_key():
     session = FakeSession(_carrier())
 
     def failing_get(url, **kwargs):
-        assert "key" not in url or True  # key may be in params, not asserted
+        assert "key" not in url or True
         return FakeResponse({}, ok=False, status=500)
 
     with mock.patch.object(session, "get", side_effect=failing_get):

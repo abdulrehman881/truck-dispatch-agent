@@ -8,9 +8,6 @@ from pathlib import Path
 import pymupdf
 
 
-# --------------------------------------------------
-# 1. PROJECT PATHS
-# --------------------------------------------------
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_DIR / "data"
@@ -19,9 +16,6 @@ OUTPUT_DIR = PROJECT_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# --------------------------------------------------
-# 2. TEXT CLEANING AND VALIDATION
-# --------------------------------------------------
 
 def clean_text(value):
     """Convert extracted values to clean, single-line text."""
@@ -67,9 +61,6 @@ def is_header(row):
     )
 
 
-# --------------------------------------------------
-# 3. APPLICATION CATEGORY DETECTION
-# --------------------------------------------------
 
 def normalize_heading(text):
     """Normalize a possible category heading."""
@@ -106,9 +97,6 @@ def is_category_heading(text):
     return text.startswith(known_prefixes)
 
 
-# --------------------------------------------------
-# 4. EXTRACT CATEGORY HEADINGS ABOVE A TABLE
-# --------------------------------------------------
 
 def update_category_from_blocks(blocks, table_top, current_category):
     """
@@ -126,7 +114,6 @@ def update_category_from_blocks(blocks, table_top, current_category):
 
         x0, y0, x1, y1, text = block[:5]
 
-        # Ignore text below the top of the current table.
         if y1 > table_top:
             continue
 
@@ -135,7 +122,6 @@ def update_category_from_blocks(blocks, table_top, current_category):
         if is_category_heading(text):
             headings.append((y0, x0, text))
 
-    # Process headings in reading order.
     headings.sort(key=lambda item: (item[0], item[1]))
 
     if headings:
@@ -144,9 +130,6 @@ def update_category_from_blocks(blocks, table_top, current_category):
     return current_category
 
 
-# --------------------------------------------------
-# 5. EXTRACT RECORDS FROM ONE PDF
-# --------------------------------------------------
 
 def extract_pdf(pdf_path):
     records = []
@@ -156,7 +139,6 @@ def extract_pdf(pdf_path):
         for page_index, page in enumerate(pdf):
             page_number = page_index + 1
 
-            # Get text blocks and tables from this page.
             blocks = sorted(
                 page.get_text("blocks"),
                 key=lambda block: (block[1], block[0]),
@@ -164,7 +146,6 @@ def extract_pdf(pdf_path):
 
             tables = page.find_tables()
 
-            # Process tables from top to bottom.
             sorted_tables = sorted(
                 tables.tables,
                 key=lambda table: table.bbox[1],
@@ -176,11 +157,9 @@ def extract_pdf(pdf_path):
                 if not rows:
                     continue
 
-                # Ignore tables that do not have the expected headers.
                 if not is_header(rows[0]):
                     continue
 
-                # Update category before extracting this table.
                 current_category = update_category_from_blocks(
                     blocks,
                     table.bbox[1],
@@ -191,17 +170,12 @@ def extract_pdf(pdf_path):
                     if not row or is_header(row):
                         continue
 
-                    # Expected columns:
-                    # USDOT Number, Legal Business Name,
-                    # Filing Date, Business Mailing Address,
-                    # Company Officer, Business Telephone
                     if len(row) < 6:
                         continue
 
                     usdot_number = normalize_usdot(row[0])
                     company_name = clean_text(row[1])
 
-                    # Skip rows without essential identifiers.
                     if not usdot_number or not company_name:
                         continue
 
@@ -227,9 +201,6 @@ def extract_pdf(pdf_path):
     return records
 
 
-# --------------------------------------------------
-# 6. CREATE A SUMMARY REPORT
-# --------------------------------------------------
 
 def create_summary(records, processed_files, errors):
     """Create useful quality checks for the extracted data."""
@@ -279,9 +250,6 @@ def create_summary(records, processed_files, errors):
     }
 
 
-# --------------------------------------------------
-# 7. MAIN PIPELINE
-# --------------------------------------------------
 
 def main():
     pdf_files = sorted(DATA_DIR.glob("*.pdf"))
@@ -316,7 +284,6 @@ def main():
 
             print(f"  ERROR: {error}")
 
-    # Save all raw extracted records.
     records_path = OUTPUT_DIR / "extracted_leads.json"
 
     with records_path.open("w", encoding="utf-8") as file:
@@ -327,7 +294,6 @@ def main():
             ensure_ascii=False,
         )
 
-    # Save data-quality summary.
     summary = create_summary(
         all_records,
         processed_files,
@@ -368,7 +334,6 @@ def main():
     print(f"\nRecords saved to: {records_path}")
     print(f"Summary saved to: {summary_path}")
 
-    # Show a small sample for a quick visual check.
     print("\nFirst 3 extracted records:")
     for record in all_records[:3]:
         print(json.dumps(record, indent=2, ensure_ascii=False))

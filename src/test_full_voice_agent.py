@@ -9,7 +9,6 @@ from groq import Groq
 from elevenlabs.client import ElevenLabs
 
 
-# Load API keys from the project root
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 

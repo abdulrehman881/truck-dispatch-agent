@@ -20,7 +20,6 @@ class FakeCursor:
     """Minimal cursor shell: scripted fetchone results, recorded SQL."""
 
     def __init__(self, results, all_results=None):
-        # Each TODO entry is the value that the next fetchone returns.
         self._results = list(results)
         self._all_results = list(all_results or [])
         self.executed = []
@@ -54,7 +53,6 @@ class FakeConnection:
         return self
 
     def __exit__(self, exc_type, exc_value, tb):
-        # Mirror psycopg semantics: commit on success, rollback on error.
         if exc_type is None:
             self.commits += 1
         else:
@@ -107,8 +105,8 @@ def test_carrier_call_attempt_flow_and_reservation_release(monkeypatch):
 
     cursor = FakeCursor(
         [
-            (1,),   # carrier exists
-            attempt_row,  # INSERT ... RETURNING
+            (1,),
+            attempt_row,
         ]
     )
     connection = _fake_db(monkeypatch, cursor)
@@ -131,14 +129,13 @@ def test_carrier_call_attempt_flow_and_reservation_release(monkeypatch):
     assert body["attempt"]["usdot_number"] == USDOT
     assert body["attempt"]["call_status"] == "initiated"
 
-    # The reservation must be released in the same transaction.
     assert connection.commits >= 1
     sqls = " | ".join(sql for sql, _ in cursor.executed)
     assert "review_reserved_at = NULL" in sqls
 
 
 def test_call_attempt_rejects_unknown_carrier(monkeypatch):
-    cursor = FakeCursor([None])  # carrier does not exist
+    cursor = FakeCursor([None])
     _fake_db(monkeypatch, cursor)
 
     response = client.post(
@@ -175,7 +172,6 @@ def test_review_save_flow(monkeypatch):
     assert body["review"]["review_status"] == "interested"
     assert "No phone call was made" in body["message"]
 
-    # Saving a review also releases any reservation held on the lead.
     assert "review_reserved_until = NULL" in " | ".join(
         sql for sql, _ in cursor.executed
     )
@@ -203,13 +199,9 @@ def test_metrics_shape(monkeypatch):
 
 
 def test_outbound_call_mode_guard():
-    # The live mode must be impossible without approval; offline/mock allowed.
     assert main.OUTBOUND_CALL_MODE in ("offline", "mock")
 
 
-# --------------------------------------------------
-# Audit transactionality and rollback
-# --------------------------------------------------
 
 def test_review_audit_written_within_transaction(monkeypatch):
     review_row = (
@@ -233,10 +225,8 @@ def test_review_audit_written_within_transaction(monkeypatch):
         sql for sql, _ in cursor.executed if "operator_audit_log" in sql
     ]
     assert len(audit_sqls) == 1
-    # Parameterized audit insert: no string-built SQL.
     assert "%s" in audit_sqls[0]
 
-    # One successful transaction commit; nothing was torn back.
     assert connection.commits == 1
     assert connection.rollbacks == 0
 
@@ -265,8 +255,6 @@ def test_failed_audit_rolls_back_review(monkeypatch):
         json={"usdot_number": USDOT, "review_status": "interested"},
     )
 
-    # The save must fail, and the transaction must be rolled back:
-    # an event is only recorded if the audit entry is also saved.
     assert response.status_code == 500
     assert connection.commits == 0
     assert connection.rollbacks == 1
@@ -301,9 +289,6 @@ def test_call_attempt_audit_written(monkeypatch):
     assert len(audit_sqls) == 1
 
 
-# --------------------------------------------------
-# Injection resistance (search query is fully parameterized)
-# --------------------------------------------------
 
 def test_search_is_parameterized_against_injection(monkeypatch):
     cursor = FakeCursor([], all_results=[[]])
@@ -317,8 +302,6 @@ def test_search_is_parameterized_against_injection(monkeypatch):
     assert response.status_code == 200
     assert response.json()["count"] == 0
 
-    # Nothing gets concatenated into SQL text: the payload only travels
-    # as a bound parameter.
     injection_sqls = [
         sql for sql, _ in cursor.executed if payload in sql
     ]
@@ -353,9 +336,6 @@ def test_live_mode_is_refused_at_startup():
     assert "explicit operator approval" in stderr
 
 
-# --------------------------------------------------
-# Mock calling workflow (dry-run provider)
-# --------------------------------------------------
 
 MOCK_ATTEMPT_RETURNING_ROW = (
     11,
@@ -406,7 +386,6 @@ def test_mock_call_records_simulated_outcome(
     assert body["attempt"]["interested"] is expected_interested
 
     sqls = " ".join(sql for sql, _ in cursor.executed)
-    # Reservation release + audit both happen in the transaction.
     assert "review_reserved_until = NULL" in sqls
     assert "operator_audit_log" in sqls
 
@@ -438,7 +417,7 @@ def test_mock_call_rejects_unknown_carrier(monkeypatch):
 
 def test_mock_call_blocked_by_dnc_history(monkeypatch):
     monkeypatch.setattr(main, "OUTBOUND_CALL_MODE", "mock")
-    cursor = FakeCursor([(1,), (1,)])  # carrier exists, DNC attempt exists
+    cursor = FakeCursor([(1,), (1,)])
     _fake_db(monkeypatch, cursor)
 
     response = client.post(
@@ -449,9 +428,6 @@ def test_mock_call_blocked_by_dnc_history(monkeypatch):
     assert "do-not-call" in response.json()["detail"]
 
 
-# --------------------------------------------------
-# Operator search
-# --------------------------------------------------
 
 def test_carriers_search_shape(monkeypatch):
     cursor = FakeCursor(

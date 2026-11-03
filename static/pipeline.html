@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TruckDispatchAgent — Carrier Pipeline</title>
 <style>
-  /* ================= design tokens ================= */
   :root {
     --bg: #f3f7f4;
     --panel: #ffffff;
@@ -47,7 +46,6 @@
   h1, h2, h3 { line-height: 1.25; }
   ::selection { background: var(--accent-mid); }
 
-  /* ================= topbar ================= */
   .topbar {
     position: sticky; top: 0; z-index: 40;
     background: rgba(255, 255, 255, .88);
@@ -87,7 +85,6 @@
   }
   #menuBtn:hover { background: var(--accent-soft); border-color: var(--accent-mid); color: var(--accent-deep); }
 
-  /* ================= sidebar ================= */
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
     width: 300px; color: #e9f3ec;
@@ -114,9 +111,6 @@
   .side-head b { font-size: .95rem; letter-spacing: -.01em; color: #fff; }
   .side-head small { display: block; font-size: .72rem; color: #9db8a8; }
 
-  /* Collapse toggle that lives ON the sidebar (wide screens only);
-     on wide screens the topbar button hides while the sidebar is
-     pinned open, so this in-panel button takes over. */
   #sideToggleBtn {
     display: none;
     margin-left: auto;
@@ -169,7 +163,6 @@
   }
   .overlayish.show { display: block; }
 
-  /* ================= layout ================= */
   .wrap { max-width: 1000px; margin: 0 auto; padding: 30px 18px 70px; }
   .page-head h1 { font-size: 1.7rem; margin: 0 0 5px; letter-spacing: -.02em; }
   .sub { color: var(--muted); margin: 0 0 26px; font-size: .93rem; max-width: 640px; }
@@ -187,7 +180,6 @@
   .card-title { font-size: 1.12rem; margin: 0 0 12px; letter-spacing: -.01em; }
   .card-title small { color: var(--muted); font-weight: 400; font-size: .85rem; }
 
-  /* ================= controls ================= */
   input[type="password"], input[type="number"], input[type="text"] {
     background: #fbfdfb;
     border: 1px solid var(--border-strong);
@@ -222,7 +214,6 @@
 
   .file-badge { color: var(--ok); font-size: .92rem; font-weight: 600; }
 
-  /* ================= upload view ================= */
   .drop {
     border: 2px dashed var(--border-strong);
     border-radius: var(--r-lg);
@@ -242,7 +233,6 @@
   .drop.over { border-color: var(--accent); background: var(--accent-soft); }
   .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 16px; }
 
-  /* stages */
   .stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 12px; }
   .stage {
     background: var(--panel-2);
@@ -282,7 +272,6 @@
     border-radius: 4px;
   }
 
-  /* log + results */
   .log {
     background: #10231a; color: #cde7d6;
     border-radius: var(--r-md);
@@ -313,7 +302,6 @@
 
   .hidden { display: none !important; }
 
-  /* ================= chat view ================= */
   .open-chat { padding: 0 2px; }
   .open-chat .chat {
     display: flex; flex-direction: column; gap: 12px;
@@ -388,7 +376,6 @@
     background: var(--accent-soft); box-shadow: var(--shadow-sm);
   }
 
-  /* ================= exports view ================= */
   .export-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .export-tile {
     background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r-md);
@@ -413,7 +400,6 @@
     background: var(--accent-soft); border-color: var(--accent);
   }
 
-  /* ================= in-browser data viewer ================= */
   .dv-overlay {
     position: fixed; inset: 0; z-index: 80;
     background: rgba(13, 43, 30, .45); backdrop-filter: blur(3px);
@@ -446,7 +432,6 @@
   .dv-body th { position: sticky; top: 0; background: var(--panel-2); }
   .dv-note { color: var(--muted); font-size: .74rem; padding: 6px 20px 0; }
 
-  /* ================= tasks view ================= */
   .tasks-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   #tasksTable td { vertical-align: top; }
   tr.due-row td { background: #fdf6e8; }
@@ -471,7 +456,6 @@
     font-size: .9rem; line-height: 1.55;
   }
 
-  /* ================= due-task reminder alarm ================= */
   .task-alert-overlay {
     position: fixed; inset: 0; z-index: 90;
     background: rgba(13, 43, 30, .5); backdrop-filter: blur(3px);
@@ -501,7 +485,6 @@
   .task-alert button.secondary:hover { background: var(--accent-soft); }
   .task-alert .alert-note { font-size: .75rem; color: var(--muted); margin: 12px 0 0; }
 
-  /* ================= desktop: sidebar open by default, collapse ================= */
   @media (min-width: 1150px) {
     .sidebar { transform: translateX(0); box-shadow: none; }
     .sidebar.closed-desktop {
@@ -509,14 +492,8 @@
       box-shadow: var(--shadow-lg);
     }
     body.side-closed .wrap { margin-left: 0; }
-    /* The topbar is a body child spanning the full width: shift it
-       right of the pinned sidebar (its menu button would otherwise
-       sit underneath the sidebar), and back to full width when the
-       sidebar is collapsed. */
     .topbar { margin-left: 300px; padding-left: 30px; }
     body.side-closed .topbar { margin-left: 0; padding-left: 30px; }
-    /* While the sidebar is pinned open the topbar button sits under
-       it; the collapsible sidebar carries its own button instead. */
     #sideToggleBtn { display: inline-flex; }
     body:not(.side-closed) #menuBtn { display: none; }
     .overlayish { display: none !important; }
@@ -619,7 +596,6 @@
     second option. The sidebar has files, PDF upload and reminders.</p>
   </div>
 
-  <!-- ============ VIEW: CHAT (main, open space) ============ -->
   <section class="view active" id="view-chat">
     <div class="open-chat">
       <div class="chat-title">
@@ -652,7 +628,6 @@
     </div>
   </section>
 
-  <!-- ============ VIEW: PIPELINE UPLOAD ============ -->
   <section class="view" id="view-pipeline">
     <div class="card">
       <h2 class="card-title">Upload carrier PDF</h2>
@@ -701,7 +676,6 @@
     </div>
   </section>
 
-  <!-- ============ VIEW: EXPORTS ============ -->
   <section class="view" id="view-exports">
     <div class="card">
       <h2 class="card-title">Excel files <small>one click downloads — nothing else changes</small></h2>
@@ -750,7 +724,6 @@
     </div>
   </section>
 
-  <!-- ============ VIEW: REMINDERS ============ -->
   <section class="view" id="view-reminders">
     <div class="card" id="tasksCard">
       <div class="tasks-head">
@@ -772,7 +745,6 @@
   </section>
 </div>
 
-<!-- In-browser data viewer: see the export tables without downloading -->
 <div class="dv-overlay" id="dvModal">
   <div class="dv-panel" role="dialog" aria-modal="true">
     <div class="dv-head">
@@ -796,7 +768,6 @@
   </div>
 </div>
 
-<!-- Due-task reminder alarm: rings when a task is due -->
 <div class="task-alert-overlay" id="taskAlert">
   <div class="task-alert" role="alertdialog" aria-live="assertive">
     <div class="alert-ico" aria-hidden="true">
@@ -827,7 +798,6 @@
     return d.innerHTML;
   };
 
-  /* ================= sidebar ================= */
   const sidebar = $("sidebar");
   const overlay = $("overlay");
 
@@ -842,13 +812,9 @@
   overlay.onclick = closeSidebar;
   function closeSidebar() { sidebar.classList.remove("open"); overlay.classList.remove("show"); }
 
-  // Desktop (wide screens): the sidebar starts open and can collapse.
-  // While pinned open, the small button INSIDE the sidebar collapses
-  // it (the topbar button is hidden then); while closed, the topbar
-  // button expands it. The choice persists per browser.
   $("sideToggleBtn").onclick = () => {
     if (isWide()) toggleDesktopSidebar();
-    else closeSidebar();          // unreachable while hidden, defensive
+    else closeSidebar();
   };
 
   function applyDesktopSidebar() {
@@ -857,8 +823,6 @@
       document.body.classList.remove("side-closed");
       return;
     }
-    // Leaving narrow mode: a mobile-open sidebar becomes the pinned
-    // desktop one unless it was collapsed before.
     const closed = localStorage.getItem("side_desktop") === "closed";
     sidebar.classList.remove("open");
     overlay.classList.remove("show");
@@ -877,12 +841,12 @@
   if (mqList.addEventListener) {
     mqList.addEventListener("change", applyDesktopSidebar);
   } else if (mqList.addListener) {
-    mqList.addListener(applyDesktopSidebar);   // older Safari
+    mqList.addListener(applyDesktopSidebar);
   }
 
   document.querySelectorAll(".side-link").forEach(link => {
     link.onclick = () => {
-      if (!link.dataset.view) return;   // external page links are plain anchors
+      if (!link.dataset.view) return;
       document.querySelectorAll(".side-link").forEach(l => l.classList.remove("active"));
       link.classList.add("active");
       document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
@@ -893,10 +857,7 @@
     };
   });
 
-  /* ================= auth ================= */
   function tokenVal() {
-    // sessionStorage keeps it per-tab; localStorage keeps it across
-    // browser restarts so the operator never retypes it.
     return sessionStorage.getItem("admin_token")
       || localStorage.getItem("admin_token")
       || "";
@@ -906,7 +867,6 @@
     return t ? {"Authorization": "Bearer " + t} : {};
   }
 
-  /* ================= PDF upload ================= */
   const drop = $("drop");
   const fileEl = $("file");
   const fileName = $("fileName");
@@ -1083,11 +1043,10 @@
           startBtn.disabled = !selectedFile;
           if (job.status === "done") showResults(job);
         }
-      } catch (err) {/* keep polling */}
+      } catch (err) {}
     }, 1000);
   }
 
-  /* ================= assistant chat ================= */
   const chatEl = $("chat");
   const assistantForm = $("assistantForm");
   const assistantInput = $("assistantInput");
@@ -1162,8 +1121,6 @@
       const reply = body.reply || "(no reply)";
       addMessage(body.action === "refused" ? "refused" : "bot", reply);
       speakReply(reply);
-      // Operator asked the agent to call a carrier: open the receiver
-      // console in a NEW TAB (unchanged behavior) and hand it the token.
       if (body.data && body.data.auto_connect_url) {
         addMessage(
           "bot",
@@ -1202,16 +1159,14 @@
     chip.onclick = () => askAssistant(chip.dataset.msg);
   });
 
-  /* ================= voice: admin speaks, agent listens ================= */
   const micBtn = $("micBtn");
   let recognition = null;
-  let wantListening = false;   // true while the round button is active
-  let adamSpeaking = false;    // true while Adam's voice reply is playing
-  let adamLastText = "";       // last text Adam spoke (echo filter)
+  let wantListening = false;
+  let adamSpeaking = false;
+  let adamLastText = "";
 
   micBtn.onclick = () => {
     if (adamSpeaking) {
-      // Interrupt button: stop Adam mid-sentence and listen.
       adamSpeaking = false;
       window.speechSynthesis && window.speechSynthesis.cancel();
       $("micHint").textContent = "You interrupted Adam — he stopped and is listening to you.";
@@ -1247,9 +1202,8 @@
       if (!text) return;
       if (adamSpeaking) {
         if (looksLikeAdamEcho(text)) {
-          return; // Adam heard his own speakers, not you — ignore.
+          return;
         }
-        // BARGE-IN: you talked over Adam — he stops instantly and takes your words.
         adamSpeaking = false;
         window.speechSynthesis && window.speechSynthesis.cancel();
         $("micHint").textContent = "You interrupted Adam — he stopped and is listening to you.";
@@ -1265,7 +1219,6 @@
         micBtn.classList.remove("listening");
         $("micHint").textContent = "Microphone blocked — allow mic access in the browser, then press the button again.";
       }
-      // temporary errors (no-speech, network, aborted) are retried by onend
     };
     recognition.onend = () => {
       if (wantListening) {
@@ -1284,8 +1237,6 @@
     $("micHint").textContent = "Press the green mic and speak. Adam answers out loud and keeps listening.";
   }
 
-  // Adam speaks his reply out loud; the mic STAYS live so you can talk
-  // over him. Echo of his own speakers is filtered by word overlap.
   function tokenOverlap(a, b) {
     const words = (x) => String(x || "").toLowerCase()
       .split(/[^a-z0-9']+/).filter((w) => w.length > 2);
@@ -1301,7 +1252,6 @@
     return tokenOverlap(text, adamLastText) > 0.55;
   }
 
-  /* ================= Excel exports ================= */
   document.querySelectorAll(".export-tile .dl-btn").forEach((btn) => {
     btn.onclick = async () => {
       if (!tokenVal()) {
@@ -1340,7 +1290,6 @@
     };
   });
 
-  /* ================= in-browser data viewer ================= */
   const dvCurrent = { rows: [] };
 
   document.querySelectorAll(".export-tile .view-btn").forEach((btn) => {
@@ -1429,12 +1378,10 @@
     $("dvModal").classList.remove("show");
   }
   $("dvClose").onclick = closeDataViewer;
-  // Click on the dimmed background closes; clicks on the panel do not.
   $("dvModal").addEventListener("click", (e) => {
     if (e.target === $("dvModal")) closeDataViewer();
   });
 
-  /* ================= reminders / tasks ================= */
   async function loadTasks() {
     try {
       const res = await fetch("/tasks?limit=100", {headers: authHeaders()});
@@ -1494,7 +1441,6 @@
         $("taskRows").appendChild(tr);
       }
     } catch (err) {
-      // Keep the previous view if the refresh fails.
     }
   }
 
@@ -1516,14 +1462,13 @@
     }
   }
 
-  /* ================= due-task reminder alarm ================= */
   const ALERTED_KEY = "alerted_due_tasks";
   const SNOOZED_KEY = "snoozed_due_tasks";
-  const alertQueue = [];          // due tasks waiting to be shown
+  const alertQueue = [];
   let currentAlertId = null;
   let ringTimer = null;
   let audioCtx = null;
-  let snoozeUntil = loadSnoozed(); // task id -> timestamp to stop nagging
+  let snoozeUntil = loadSnoozed();
 
   function loadSnoozed() {
     try { return JSON.parse(localStorage.getItem(SNOOZED_KEY) || "{}"); }
@@ -1536,7 +1481,6 @@
     } catch {}
   }
 
-  // Drop snooze entries that have expired, so they stop being stored.
   function pruneSnoozed() {
     const now = Date.now();
     for (const id of Object.keys(snoozeUntil)) {
@@ -1556,8 +1500,6 @@
     } catch {}
   }
 
-  // Browsers block audio until the operator interacts with the page once.
-  // Prime the audio context on the first click/keypress so the ring works.
   function primeAudio() {
     if (!audioCtx) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -1573,7 +1515,6 @@
     if (!audioCtx) return;
     if (audioCtx.state === "suspended") audioCtx.resume();
     const t0 = audioCtx.currentTime;
-    // Two-tone chime (ding dong), like a classic bell.
     [[880, 0], [659.25, 0.28]].forEach(([freq, off]) => {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -1613,7 +1554,6 @@
     window.speechSynthesis.speak(utter);
   }
 
-  // Called from loadTasks with the fresh /tasks list.
   function checkDueTasks(tasks) {
     const alerted = alertedSet();
     pruneSnoozed();
@@ -1663,9 +1603,6 @@
   $("alertDismiss").onclick = () => acknowledgeCurrent(currentAlertId);
 
   $("alertSnooze").onclick = () => {
-    // Persists across page reloads: rings again on a later poll (about
-    // 5 minutes from now) because the task is NOT added to the
-    // permanently-alerted set.
     if (currentAlertId != null) {
       snoozeUntil[currentAlertId] = Date.now() + 5 * 60 * 1000;
       saveSnoozed();
@@ -1677,13 +1614,9 @@
   loadTasks();
   setInterval(loadTasks, 30000);
 
-  // The token is managed invisibly: saved from a previous visit or
-  // handed over by the local server (localhost only), so the operator
-  // never sees or retypes it. Every load re-checks with the server so
-  // a saved-but-changed token heals itself.
   (function initToken() {
     if (tokenVal()) {
-      tokenNote("");            // reserve the line; no visible text
+      tokenNote("");
       $("topStatus").classList.add("on");
     }
     fetch("/admin/api-token")
@@ -1698,13 +1631,12 @@
           $("topStatus").classList.add("on");
           loadTasks();
         } else if (!tokenVal()) {
-          tokenNote("");         // page shell loads without admin data
+          tokenNote("");
         }
       })
-      .catch(() => {/* server unreachable — a saved token still works */});
+      .catch(() => {});
   })();
 
-  // Keyboard shortcuts: Escape closes the sidebar, "/" focuses chat.
   document.addEventListener("keydown", (e) => {
     const typing = document.activeElement
       && (document.activeElement.tagName === "INPUT"
@@ -1716,7 +1648,7 @@
     }
     if (e.key === "Escape" && isWide()
         && !sidebar.classList.contains("closed-desktop")) {
-      toggleDesktopSidebar();   // Escape collapses the pinned sidebar
+      toggleDesktopSidebar();
       return;
     }
     if (e.key === "Escape" && sidebar.classList.contains("open")) {

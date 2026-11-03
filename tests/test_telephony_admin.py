@@ -107,12 +107,11 @@ def test_save_upserts_and_never_echoes_secrets(monkeypatch):
     assert response.json()["saved"] is True
     payload = response.json()
     assert "secret-auth-token-xyz" not in response.text
-    # The upsert reached the database with every field
     sql = fake._cursor.last_sql
     assert "ON CONFLICT (id) DO UPDATE" in sql
     params = fake._cursor.last_params
-    assert params[0] == "twilio"          # provider normalised
-    assert params[3] == "15550101234"     # caller id digits only
+    assert params[0] == "twilio"
+    assert params[3] == "15550101234"
 
 
 def test_get_returns_masked_preview_only(monkeypatch):
@@ -125,7 +124,7 @@ def test_get_returns_masked_preview_only(monkeypatch):
     assert response.status_code == 200
     text = response.text
     assert "secret-auth-token-xyz" not in text
-    assert "AC1234567890abcdef" not in text  # raw sid hidden too
+    assert "AC1234567890abcdef" not in text
     body = response.json()
     assert body["configured"] is True
     assert body["account_sid_masked"].endswith("cdef")
@@ -167,7 +166,6 @@ def test_provider_check_only_touches_the_account_api(monkeypatch):
 
 
 def test_provider_check_reports_rejection():
-    # Real network-independent check: HTTPError path maps to a reason.
     import urllib.error
 
     class Error(urllib.error.HTTPError):
@@ -190,7 +188,7 @@ def test_provider_check_reports_rejection():
     assert result["ok"] is False
     assert result["http_status"] == 401
     assert "rejected" in result["reason"]
-    assert recorded == [8]   # bounded timeout, no unbounded waits
+    assert recorded == [8]
 
 
 def test_dial_list_limit_bounds():
@@ -227,7 +225,6 @@ def test_dial_list_filters_and_shapes(monkeypatch):
     assert body["telephony"]["configured"] is True
     assert "secret" not in response.text
     sql = cursor.last_sql
-    # exclusion of DNC/not-interested + phone requirement in SQL
     assert "NOT IN ('do_not_contact', 'not_interested')" in sql
     assert "c.phone IS NOT NULL AND c.phone <> ''" in sql
     assert "LIMIT %s" in sql

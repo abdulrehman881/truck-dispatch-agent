@@ -9,11 +9,9 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 
-# Project folders
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 INPUT_FILE = PROJECT_DIR / "output" / "qualified_leads.json"
 
-# PostgreSQL connection settings
 load_dotenv(PROJECT_DIR / ".env")
 
 DB_CONFIG = {
@@ -92,7 +90,6 @@ def record_to_params(record):
     if not usdot:
         return None
 
-    # Use verified company name when available
     company_name = get_value(
         record,
         "official_legal_name",
@@ -121,8 +118,6 @@ def record_to_params(record):
     except (TypeError, ValueError):
         score = None
 
-    # Keep only selected fields in source_record.
-    # Do not copy raw FMCSA API responses or sensitive identifiers.
     safe_source = {
         key: record.get(key)
         for key in (
@@ -147,7 +142,6 @@ def record_to_params(record):
         if key in record
     }
 
-    # Serialize carrier_operation for the TEXT column.
     carrier_operation = get_value(record, "carrier_operation")
 
     if isinstance(carrier_operation, dict):
@@ -236,11 +230,9 @@ def main():
     if not INPUT_FILE.exists():
         raise FileNotFoundError(f"Input file not found: {INPUT_FILE}")
 
-    # Load the qualified leads
     with INPUT_FILE.open("r", encoding="utf-8") as file:
         data = json.load(file)
 
-    # Support either a list or a dictionary containing a list
     if isinstance(data, list):
         records = data
     elif isinstance(data, dict):
@@ -253,13 +245,11 @@ def main():
             "No leads found. Check the structure of qualified_leads.json."
         )
 
-    # Connect to PostgreSQL
     with psycopg.connect(**DB_CONFIG) as connection:
         with connection.cursor() as cursor:
 
             imported, skipped = upsert_records(cursor, records)
 
-        # Count the final unique records
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM carrier_leads;")
             total = cursor.fetchone()[0]

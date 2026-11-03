@@ -22,18 +22,18 @@ authed = TestClient(
 )
 
 SESSION_ROW = (
-    "call_abc123",      # id
-    "usdot:1234567",    # caller_key
-    "Rob Miller",       # display_name
-    "MLA Logistics",    # company_name
-    "1234567",          # usdot_number
-    "3125550142",       # phone
-    "open",             # status
-    None,               # started_at
-    None,               # last_activity_at
-    None,               # ended_at
-    None,               # summary
-    None,               # resumed_from
+    "call_abc123",
+    "usdot:1234567",
+    "Rob Miller",
+    "MLA Logistics",
+    "1234567",
+    "3125550142",
+    "open",
+    None,
+    None,
+    None,
+    None,
+    None,
 )
 
 ENDED_ROW = SESSION_ROW[:6] + ("ended",) + SESSION_ROW[7:]
@@ -86,9 +86,6 @@ def _explode(*args, **kwargs):
     raise AssertionError("model must not be called here")
 
 
-# --------------------------------------------------
-# Caller identity
-# --------------------------------------------------
 
 def test_caller_key_prefers_usdot():
     key = main.build_caller_key(
@@ -144,9 +141,6 @@ def test_summary_uses_last_caller_words():
     assert "greeting" not in summary
 
 
-# --------------------------------------------------
-# Refusal before any model/DB-write path
-# --------------------------------------------------
 
 def test_refusal_happens_before_model_call(monkeypatch):
     cursor = _install(monkeypatch, _Cursor(fetches=[SESSION_ROW]))
@@ -160,7 +154,6 @@ def test_refusal_happens_before_model_call(monkeypatch):
     assert result["refused"] is True
     assert result["flagged"] is True
     assert result["reply"] == main.CALL_REFUSAL_REPLY
-    # Only reads + message inserts happened; nothing else was written.
     every_sql = " ".join(call[0] for call in cursor.calls)
     assert "carrier_leads" not in every_sql
     assert "carrier_reviews" not in every_sql
@@ -185,19 +178,16 @@ def test_change_orders_never_write_carrier_tables(monkeypatch):
         assert table not in every_sql
 
 
-# --------------------------------------------------
-# begin_call: new vs resumed
-# --------------------------------------------------
 
 def test_begin_call_new_session(monkeypatch):
     cursor = _install(
         monkeypatch,
         _Cursor(
             fetches=[
-                None,          # no previous call
-                SESSION_ROW,   # the inserted session
+                None,
+                SESSION_ROW,
             ],
-            rows=[],           # transcript empty
+            rows=[],
         ),
     )
 
@@ -211,7 +201,6 @@ def test_begin_call_new_session(monkeypatch):
     assert "Thanks for calling with MLA Logistics" in result["greeting"]
     insert_sql = cursor.calls[1][0]
     assert "INSERT INTO public.call_sessions" in insert_sql
-    # Identity clauses searched the history table with the USDOT first.
     assert cursor.calls[0][1][0] == "1234567"
 
 
@@ -226,15 +215,14 @@ def test_begin_call_resumes_ended_history(monkeypatch):
             ENDED_ROW,
         )
     )
-    # No stored summary this time -> one is derived from the old transcript.
     new_row = ("call_new",) + ENDED_ROW[1:6] + ("open",) + ENDED_ROW[7:]
 
     cursor = _install(
         monkeypatch,
         _Cursor(
             fetches=[
-                ENDED_ROW,   # previous call found
-                new_row,     # the inserted (resumed) session
+                ENDED_ROW,
+                new_row,
             ],
             rows=[("user", "talked reefer lanes", False, None)],
         ),
@@ -245,7 +233,6 @@ def test_begin_call_resumes_ended_history(monkeypatch):
     assert result["resumed"] is True
     assert result["resumed_from"] == "call_abc123"
     assert "Welcome back" in result["greeting"]
-    # The greeting picks up where the last conversation left off.
     assert "talked reefer lanes" in result["greeting"]
     assert any(
         "reefer" in item["content"] for item in result["transcript"]
@@ -261,9 +248,6 @@ def test_begin_call_no_identity_is_400(monkeypatch):
     assert err.value.status_code == 400
 
 
-# --------------------------------------------------
-# Message path storage
-# --------------------------------------------------
 
 def test_message_stores_user_and_assistant_rows(monkeypatch):
     cursor = _install(monkeypatch, _Cursor(fetches=[SESSION_ROW]))
@@ -315,9 +299,6 @@ def test_empty_message_is_rejected():
     assert err.value.status_code == 400
 
 
-# --------------------------------------------------
-# end_call
-# --------------------------------------------------
 
 def test_end_call_sets_ended_and_summary(monkeypatch):
     ended = ENDED_ROW[:10] + ("I haul reefer", None)
@@ -347,9 +328,6 @@ def test_end_call_unknown_session_is_404(monkeypatch):
     assert err.value.status_code == 404
 
 
-# --------------------------------------------------
-# Brevity: phone replies are cut to at most 2 sentences
-# --------------------------------------------------
 
 def test_shorten_call_reply_keeps_one_or_two_sentences():
     one = "Sure thing."
@@ -362,7 +340,6 @@ def test_shorten_call_reply_cuts_long_answers():
     three = "Sure. We have reefer loads near Dallas. Let me ask about your trailer length. What year is it?"
     kept = main._shorten_call_reply(three)
     assert kept == "Sure. We have reefer loads near Dallas."
-    # collapse stray whitespace
     messy = "  Sure.   We have reefer loads near Dallas.  Extra tail.  "
     assert main._shorten_call_reply(messy) == "Sure. We have reefer loads near Dallas."
 
@@ -388,7 +365,7 @@ def test_call_agent_reply_shortens_model_output(monkeypatch):
     class _Completions:
         @staticmethod
         def create(**kwargs):
-            assert kwargs["max_completion_tokens"] <= 300  # short budget
+            assert kwargs["max_completion_tokens"] <= 300
             assert kwargs["reasoning_effort"] == "low"
             return _Completion()
     class _Chat:
@@ -403,9 +380,6 @@ def test_call_agent_reply_shortens_model_output(monkeypatch):
     assert reply == "We have reefer loads near Dallas this week. They pay two dollars a mile."
 
 
-# --------------------------------------------------
-# Structured driver profile extracted from caller words
-# --------------------------------------------------
 
 def test_derive_call_profile_extracts_equipment_lengths_lanes():
     messages = [
@@ -426,7 +400,6 @@ def test_derive_call_profile_ignores_assistant_words_and_junk():
         {"role": "user", "content": "hmm let me think"},
     ]
     profile = main.derive_call_profile(messages)
-    # assistant words never count; no free-text invention
     assert profile["equipment"] == []
     assert profile["trailer_lengths"] == []
     assert profile["lanes"] == []
@@ -439,7 +412,6 @@ def test_end_call_returns_profile_without_touching_summary(monkeypatch):
         _Cursor(
             fetches=[SESSION_ROW, ended],
             rows=[
-                # stored newest-first in the DB, transcript code reverses
                 ("user", "from Texas to Chicago", False, None),
                 ("user", "I haul reefer", False, None),
             ],
@@ -448,19 +420,14 @@ def test_end_call_returns_profile_without_touching_summary(monkeypatch):
 
     result = main.end_call("call_abc123")
 
-    # summary format unchanged — plain caller words, no profile appended
     assert result["summary"] == "I haul reefer | from Texas to Chicago"
     assert result["profile"]["equipment"] == ["reefer"]
     assert result["profile"]["lanes"] == ["texas to chicago"]
-    # nothing was written to lead tables
     every_sql = " ".join(call[0] for call in cursor.calls)
     for table in ("carrier_leads", "carrier_reviews", "carrier_call_attempts"):
         assert table not in every_sql
 
 
-# --------------------------------------------------
-# HTTP endpoints & auth
-# --------------------------------------------------
 
 def test_call_endpoints_require_admin_token():
     assert client.post(
@@ -558,7 +525,6 @@ def test_conversation_reply_never_writes_carrier_tables(monkeypatch):
     )
     monkeypatch.setattr(main, "groq_client", _explode)
 
-    # Model raising is caught inside _call_agent_reply -> fallback text.
     result = main.handle_call_message("call_abc123", "what loads you got")
 
     assert "can't change any records" in result["reply"].lower()
@@ -567,9 +533,6 @@ def test_conversation_reply_never_writes_carrier_tables(monkeypatch):
         assert table not in every_sql
 
 
-# --------------------------------------------------
-# Operator-initiated outbound call (auto-open receiver page)
-# --------------------------------------------------
 
 def test_outbound_endpoint_returns_auto_connect_url(monkeypatch):
     monkeypatch.setattr(

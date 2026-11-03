@@ -136,5 +136,4 @@ def test_export_excel_still_works_after_refactor(monkeypatch):
     response = AUTHED.get("/export-excel")
     assert response.status_code == 200
     assert "spreadsheetml" in response.headers["content-type"]
-    # xlsx files are zip containers, starting with the PK signature.
     assert response.content[:2] == b"PK"

@@ -66,8 +66,6 @@ def test_other_conversations_are_untouched():
 
 def test_expired_conversation_clears_carrier_marker(monkeypatch):
     _seed("conv-expired", carrier="5555555")
-    # Force the entry far into the past, independent of system uptime
-    # (boot-relative monotonic clocks must not affect this test).
     import time as _time
 
     main.conversation_histories["conv-expired"]["last_active"] = (
@@ -85,7 +83,6 @@ def test_memory_is_cleared_when_carrier_changes(monkeypatch):
     """Simulates the switch detection used in /stream-voice."""
     _seed("conv-switch", carrier="6666666")
 
-    # Same logic as the streaming endpoint: previous != current -> clear.
     previous = main.conversation_carriers.get("conv-switch")
     current = "7777777"
 

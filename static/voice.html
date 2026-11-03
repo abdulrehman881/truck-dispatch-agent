@@ -81,7 +81,6 @@
   let requestNumber = 0;
   let restartTimer = null;
 
-  // Give this browser tab its own conversation ID.
   let conversationId = sessionStorage.getItem("adam_conversation_id");
 
   if (!conversationId) {
@@ -89,7 +88,6 @@
     sessionStorage.setItem("adam_conversation_id", conversationId);
   }
 
-  // Microphone-based interruption detection
   let micStream = null;
   let audioContext = null;
   let analyser = null;
@@ -171,16 +169,13 @@ async function startMicMonitor() {
         ) {
           interruptionTriggered = true;
 
-  // Invalidate the current response so queued audio cannot play.
           requestNumber++;
 
-  // Cancel the ongoing streaming request.
           if (currentAbortController) {
             currentAbortController.abort();
             currentAbortController = null;
           }
 
-  // Stop the audio currently playing.
           if (currentAudio) {
             currentAudio.pause();
             currentAudio.currentTime = 0;
@@ -210,7 +205,6 @@ async function startMicMonitor() {
     try {
       recognition.start();
     } catch (error) {
-      // Chrome may already be starting recognition.
     }
   }
 
@@ -248,7 +242,6 @@ async function startMicMonitor() {
     try {
       recognition.stop();
     } catch (error) {
-      // Recognition may already be stopped.
     }
 
     startButton.disabled = false;
@@ -256,7 +249,6 @@ async function startMicMonitor() {
   };
 
   
-  // Listen for the user's speech even while Adam is talking.
   recognition.onresult = (event) => {
     let interim = "";
     let finalText = "";
@@ -282,14 +274,12 @@ async function startMicMonitor() {
     const message = finalText.trim();
     if (!message) return;
 
-    // If the user interrupted Adam, cancel his current response.
     if (interruptionTriggered || assistantSpeaking) {
       interruptionTriggered = false;
       interruptAdam(message);
       return;
     }
 
-    // Send a normal message only when no request is running.
     if (!busy) {
       interruptionTriggered = false;
       askAdam(message);
@@ -310,8 +300,6 @@ async function startMicMonitor() {
     }
   };
 
-  // Chrome may end speech recognition automatically.
-  // Restart it even while Adam is speaking.
   recognition.onend = () => {
     clearTimeout(restartTimer);
 
@@ -321,7 +309,6 @@ async function startMicMonitor() {
   };
 
   function interruptAdam(message) {
-    // Invalidate any chunks from Adam's previous response.
     requestNumber++;
 
     if (currentAbortController) {
@@ -354,7 +341,6 @@ async function askAdam(message) {
     setStatus("Adam is thinking...");
 
     try {
-        // Step 1: Select a carrier before Adam's first voice response.
         if (!carrierSelectionAttempted) {
             carrierSelectionAttempted = true;
 
@@ -380,7 +366,6 @@ async function askAdam(message) {
             }
         }
 
-        // Step 2: Start Adam's streaming voice response.
         const response = await fetch("/stream-voice", {
             method: "POST",
             headers: {
@@ -411,7 +396,6 @@ async function askAdam(message) {
         let pending = "";
         let audioQueue = Promise.resolve();
 
-        // Step 3: Play each audio chunk from Adam.
         async function playAudio(base64Audio) {
             if (thisRequest !== requestNumber) return;
 
@@ -457,7 +441,6 @@ async function askAdam(message) {
             }
         }
 
-        // Step 4: Read the server's streaming events.
         while (true) {
             const { value, done } = await reader.read();
 
@@ -496,7 +479,6 @@ async function askAdam(message) {
             }
         }
 
-        // Step 5: Wait for queued audio to finish.
         await audioQueue;
 
         if (thisRequest === requestNumber) {

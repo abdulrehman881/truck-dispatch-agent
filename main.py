@@ -34,10 +34,8 @@ from fastapi.responses import StreamingResponse
 
 
 
-# Load API keys from the project root
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# Make the src/ phase modules importable under uvicorn as well as tests.
 import sys as _sys
 
 _src_dir = str(PROJECT_ROOT / "src")
@@ -62,9 +60,6 @@ if not ELEVENLABS_API_KEY:
 elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
 
-# Outbound calling mode. "offline" means no telephony integration is
-# configured; "mock" allows safe simulated flow testing; "live" is a
-# Phase 6 feature that must never be enabled without operator approval.
 OUTBOUND_CALL_MODE = os.getenv("OUTBOUND_CALL_MODE", "offline").lower()
 
 if OUTBOUND_CALL_MODE not in ("offline", "mock", "live"):
@@ -80,9 +75,6 @@ if OUTBOUND_CALL_MODE == "live":
     )
 
 
-# --------------------------------------------------
-# Structured logging with request IDs
-# --------------------------------------------------
 
 logger = logging.getLogger("truck_dispatcher")
 if not logger.handlers:
@@ -147,11 +139,7 @@ app = FastAPI(
 )
 
 
-# --------------------------------------------------
-# Operator authentication for admin/data endpoints
-# --------------------------------------------------
 
-# Shared operator token from the environment. Never hardcode it.
 ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
 
 
@@ -196,7 +184,6 @@ def _is_local_request(request: Request) -> bool:
     """True for loopback clients only (server and browser share this machine)."""
     client = request.client
     host = (client.host if client else "") or ""
-    # "testclient" is FastAPI's TestClient default host.
     return host in ("127.0.0.1", "::1", "localhost", "testclient")
 
 
@@ -237,9 +224,6 @@ async def attach_request_id(request, call_next):
 
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
-    # Let the browser revalidate UI pages each visit; stale code has
-    # already confused the operator once (old sidebar behaviour kept
-    # running after an edit until a manual Ctrl+Shift+R).
     if "text/html" in response.headers.get("content-type", ""):
         response.headers["Cache-Control"] = "no-cache"
     log_event(
@@ -286,18 +270,13 @@ class CallAttemptRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=4000)
 
 
-# Temporary conversation memory.
-# Each conversation ID stores its own messages and last-active time.
 HISTORY_MAX_MESSAGES = 20
-HISTORY_TTL_SECONDS = 60 * 60  # 1 hour of inactivity expires a conversation.
+HISTORY_TTL_SECONDS = 60 * 60
 
 conversation_histories: dict[str, dict] = {}
 
 pending_carrier_reviews: dict[str, dict] = {}
 
-# Which MC (USDOT) each conversation is currently working on. Memory is
-# scoped to one carrier: when the conversation moves on to another MC,
-# everything remembered about the previous one is deleted.
 conversation_carriers: dict[str, str] = {}
 
 
@@ -340,14 +319,12 @@ def get_history(conversation_id: str) -> list[dict[str, str]]:
         or now - entry["last_active"] > HISTORY_TTL_SECONDS
     ):
         if entry is not None:
-            # The conversation expired: its pending review is stale.
             pending_carrier_reviews.pop(conversation_id, None)
             conversation_carriers.pop(conversation_id, None)
 
         entry = {"messages": [], "last_active": now}
         conversation_histories[conversation_id] = entry
 
-        # Opportunistically prune fully expired conversations.
         expired = [
             key
             for key, item in conversation_histories.items()
@@ -588,7 +565,6 @@ def chat(request: ChatRequest):
 
 @app.post("/voice")
 def voice(request: ChatRequest):
-    # First generate Adam's text response
     try:
         result = groq_client.chat.completions.create(
             model="openai/gpt-oss-20b",
@@ -615,7 +591,6 @@ def voice(request: ChatRequest):
 
         reply = reply.strip()
 
-        # Convert Adam's reply into speech
         audio = elevenlabs_client.text_to_speech.convert(
             text=reply,
             voice_id="JBFqnCBsd6RMkjVDRZzb",
@@ -623,7 +598,6 @@ def voice(request: ChatRequest):
             output_format="mp3_44100_128",
         )
 
-        # Save the MP3 to a temporary file
         with tempfile.NamedTemporaryFile(
             suffix=".mp3", delete=False
         ) as temp_file:
@@ -653,7 +627,6 @@ async def voice_chat(audio_file: UploadFile = File(...)):
     audio_path = None
 
     try:
-        # 1. Read the uploaded recording
         audio_bytes = await audio_file.read()
 
         if not audio_bytes:
@@ -662,7 +635,6 @@ async def voice_chat(audio_file: UploadFile = File(...)):
                 detail="The uploaded audio file is empty.",
             )
 
-        # Basic upload-size limit: 15 MB
         if len(audio_bytes) > 15 * 1024 * 1024:
             raise HTTPException(
                 status_code=413,
@@ -671,7 +643,6 @@ async def voice_chat(audio_file: UploadFile = File(...)):
 
         filename = audio_file.filename or "recording.webm"
 
-        # 2. Convert speech into text using Groq Whisper
         transcription = groq_client.audio.transcriptions.create(
             file=(filename, audio_bytes),
             model="whisper-large-v3-turbo",
@@ -690,7 +661,6 @@ async def voice_chat(audio_file: UploadFile = File(...)):
                 detail="No speech could be detected in the recording.",
             )
 
-        # 3. Generate Adam's response
         result = groq_client.chat.completions.create(
             model="openai/gpt-oss-20b",
             messages=[
@@ -720,7 +690,6 @@ async def voice_chat(audio_file: UploadFile = File(...)):
         reply = reply.strip()
         print("STEP 2 OK: Groq generated reply:", reply)
 
-        # 4. Convert Adam's response into speech
         print("STEP 3: Calling ElevenLabs...")
         audio = elevenlabs_client.text_to_speech.convert(
             text=reply,
@@ -739,7 +708,6 @@ async def voice_chat(audio_file: UploadFile = File(...)):
             
         print("STEP 4 OK: ElevenLabs returned audio.")
 
-        # 5. Return the MP3 plus the recognized text and reply
         return FileResponse(
             audio_path,
             media_type="audio/mpeg",
@@ -793,12 +761,9 @@ def operator_dashboard():
     return FileResponse(dashboard_path, media_type="text/html")
 
 
-# --------------------------------------------------
-# Carrier-pipeline UI (upload PDF, run all phases, live progress)
-# --------------------------------------------------
 
 PIPELINE_UPLOAD_DIR = PROJECT_ROOT / "data" / "uploads"
-PIPELINE_MAX_PDF_BYTES = 25 * 1024 * 1024  # 25 MB
+PIPELINE_MAX_PDF_BYTES = 25 * 1024 * 1024
 PIPELINE_MAX_RECORDS = 200
 
 
@@ -851,7 +816,6 @@ async def pipeline_upload(
 
     PIPELINE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Sanitize the stored filename; never trust the client's path.
     safe_stem = "".join(
         char if char.isalnum() or char in "._- " else "_"
         for char in Path(file.filename).stem
@@ -955,14 +919,6 @@ def pipeline_status(job_id: str):
     return job.to_dict()
 
 
-# --------------------------------------------------
-# Scheduled tasks (persistent operator to-do queue)
-# --------------------------------------------------
-# Every follow-up is stored in PostgreSQL, so schedules survive server
-# restarts. A background worker flips tasks from "pending" to "due" when
-# their time arrives. Because outbound calling is offline, a due callback
-# becomes a visible reminder for the operator — the app never dials by
-# itself.
 
 SCHEDULED_TASKS_DDL = (
     """
@@ -1015,8 +971,6 @@ def ensure_scheduled_tasks_table():
             for statement in SCHEDULED_TASKS_DDL:
                 cur.execute(statement)
 
-            # Existing callback reviews predating the task queue get one
-            # task each (idempotent: only when no active task exists).
             cur.execute(
                 """
                 WITH latest AS (
@@ -1084,7 +1038,6 @@ def _insert_task(
         raise ValueError(f"Unknown task type: {task_type}")
 
     if task_type == "callback" and usdot_number:
-        # Rescheduling replaces the previous active callback task.
         cur.execute(
             """
             UPDATE public.scheduled_tasks
@@ -1411,14 +1364,6 @@ def _set_task_status(task_id: int, status: str):
     return {"success": True, "task": task}
 
 
-# --------------------------------------------------
-# Web phone: simulated carrier calls with remembered history
-# --------------------------------------------------
-# There is no telephony provider yet, so calls happen on a browser page
-# connected to FastAPI. Each caller is identified by USDOT, phone,
-# company, or person name; conversations are stored with that key and
-# resumed on the next call. The agent is strictly read-only: it can
-# discuss loads but never changes database records.
 
 CALL_TABLES_DDL = (
     """
@@ -1711,8 +1656,6 @@ def derive_call_profile(messages) -> dict:
                           driver_text,
                       )})
     lanes = []
-    # Words drivers say after a destination ("to Texas as well",
-    # "to Chicago next week") are not place names.
     _LANE_STOP = {
         "as", "well", "and", "also", "then", "next", "this", "that",
         "week", "today", "tomorrow", "for", "with", "from", "to",
@@ -1783,10 +1726,6 @@ def _call_agent_reply(session, transcript, message) -> str:
     messages.append({"role": "user", "content": message})
 
     try:
-        # gpt-oss is a reasoning model: a tiny token budget is consumed by
-        # the hidden reasoning channel and the visible content comes back
-        # empty. A moderate budget plus the 2-sentence cutter keeps both
-        # quality and brevity.
         completion = groq_client.chat.completions.create(
             model="openai/gpt-oss-20b",
             temperature=0.4,
@@ -2212,14 +2151,6 @@ def _ensure_call_tables_on_startup():
         )
 
 
-# --------------------------------------------------
-# Telephony provider configuration (Phase 6 groundwork)
-# --------------------------------------------------
-# Operators enter provider credentials on the /telephony page. They
-# are stored in the database and are NEVER returned by the API —
-# masked previews only. Saving does NOT enable real calls: outbound
-# calling stays on the browser console until the runtime is switched
-# to a live-capable mode with explicit operator approval.
 
 TELEPHONY_DDL = (
     """
@@ -2294,7 +2225,7 @@ def load_telephony_config() -> dict | None:
     }
 
 
-def _teleonomy_status_dict(config: dict | None) -> dict:
+def _telephony_status_dict(config: dict | None) -> dict:
     """Public view: masked values, never the raw secrets."""
     if not config or not config.get("provider"):
         return {
@@ -2313,9 +2244,6 @@ def _teleonomy_status_dict(config: dict | None) -> dict:
         "caller_id_number": config["caller_id_number"] or None,
         "status": config["status"],
         "updated_at": config["updated_at"],
-        # Real calls stay refused in this build (mode is offline and a
-        # startup guard blocks OUTBOUND_CALL_MODE=live), so this flag
-        # is always False until that is consciously changed.
         "live_calls_allowed": False,
     }
 
@@ -2356,7 +2284,7 @@ def _provider_status_check(provider, account_sid, auth_token) -> dict:
 @app.get("/admin/telephony", dependencies=[Depends(require_admin)])
 def get_telephony_config():
     """Masked telephony status — secrets never leave the server."""
-    return _teleonomy_status_dict(load_telephony_config())
+    return _telephony_status_dict(load_telephony_config())
 
 
 @app.post("/admin/telephony", dependencies=[Depends(require_admin)])
@@ -2441,7 +2369,7 @@ def clear_telephony_config():
             detail="Could not clear the telephony configuration.",
         ) from error
     log_event("telephony_config_cleared")
-    return {"cleared": True, **_teleonomy_status_dict(None)}
+    return {"cleared": True, **_telephony_status_dict(None)}
 
 
 @app.post("/admin/telephony/test", dependencies=[Depends(require_admin)])
@@ -2540,7 +2468,7 @@ def telephony_dial_list(q: str = Query(default="", max_length=100),
         }
         for row in rows
     ]
-    telephony = _teleonomy_status_dict(load_telephony_config())
+    telephony = _telephony_status_dict(load_telephony_config())
     return {
         "count": len(carriers),
         "telephony": telephony,
@@ -2557,9 +2485,6 @@ def telephony_page():
 
 
 
-# --------------------------------------------------
-# Operator assistant (chatbot that runs real actions)
-# --------------------------------------------------
 
 class AssistantRequest(BaseModel):
     """One operator instruction to the assistant."""
@@ -2570,11 +2495,6 @@ class AssistantRequest(BaseModel):
     )
 
 
-# Actions the assistant may execute. Everything here is an existing,
-# already-audited application operation. There are no delete/drop/reset
-# actions, no live-calling action, and no spending action by design:
-# "every permission" stops at anything destructive or that could cost
-# money / contact a carrier for real.
 ASSISTANT_ACTIONS = {
     "help": "Explain what the assistant can do.",
     "just_chat": (
@@ -2632,15 +2552,9 @@ ASSISTANT_REFUSAL_KEYWORDS = (
     "place a call", "make the call", "go live", "phone the carrier",
 )
 
-# Phrasing variants that are still "make a real phone call". Kept as
-# patterns so "place a real call" is refused while ordinary questions
-# such as "what is the outbound calling mode" are still allowed.
-# Note: "call carrier" / "call the carrier" is now ALLOWED for the web
-# call console (/call page) — only real telephony dialing is refused.
 ASSISTANT_REFUSAL_PATTERNS = (
     re.compile(r"\b(place|make|start|begin|initiate)\b.{0,25}\bcall\b"),
     re.compile(r"\b(dial|phone)\b.{0,25}\b(carrier|lead|number|them|him|her)\b"),
-    # Allow "call carrier" for web console; only block explicit "real call" / "dial" / "phone"
 )
 
 
@@ -2733,8 +2647,6 @@ _TALK_REPLY = (
     "is needed for us; that one is only for practicing carrier calls."
 )
 
-# Pronouns that are never a carrier identity. "call me" / "call him" /
-# "phone you" talk about people, not carriers.
 _REFLEXIVE_CALL_TARGETS = {
     "me", "you", "yourself", "myself", "himself", "herself",
     "itself", "us", "them", "him", "her", "adam", "us both",
@@ -2860,17 +2772,13 @@ def _assistant_fallback_plan(message: str) -> dict:
             args["follow_up_at"] = tail
         return {"action": "save_review", "args": args}
 
-    # call carrier <usdot|company|phone> -- opens web call console
     call_match = re.match(
         r"^(?:call|phone|dial)\s+(?:carrier\s+)?(.+)$", text, re.IGNORECASE
     )
     if call_match:
         target = call_match.group(1).strip().rstrip(".,!")
-        # "call me" / "call him" / "phone you" is the operator talking
-        # about people, not carriers — route to a chat reply instead.
         if target.lower() in _REFLEXIVE_CALL_TARGETS:
             return {"action": "just_chat", "args": {"reply": _TALK_REPLY}}
-        # Try to parse as USDOT, phone, or company name
         args = {}
         if re.fullmatch(r"\d{1,8}", target):
             args["usdot_number"] = target
@@ -2889,9 +2797,6 @@ def _assistant_fallback_plan(message: str) -> dict:
             "args": {"q": search.group(1).strip()[:100], "limit": 10},
         }
 
-    # "Let me talk to you" / "talk to me" is a request to chat with the
-    # assistant, never a carrier call. Checked last so concrete actions
-    # (metrics, search, reminders) still win when the message names one.
     if _looks_like_talk_request(lowered):
         return {"action": "just_chat", "args": {"reply": _TALK_REPLY}}
 
@@ -3248,8 +3153,6 @@ def execute_assistant_action(action: str, args: dict, conversation_id: str):
                 ),
             )
 
-        # Safety net for the model path: "me"/"you"/"him" are people,
-        # not carriers. Never open the call console for a pronoun target.
         provided = [
             v.strip().lower().rstrip(".,!")
             for v in (usdot, company, phone, caller)
@@ -3456,9 +3359,6 @@ def stream_voice(request: StreamVoiceRequest):
                 carrier_context = "Carrier information is temporarily unavailable."
 
             
-            # Memory is scoped to the MC under review. When this
-            # conversation moves to a different carrier, forget the
-            # previous one so details never get mixed up.
             if current_usdot_number is not None:
                 current_carrier = str(current_usdot_number)
                 previous_carrier = conversation_carriers.get(
@@ -3478,7 +3378,6 @@ def stream_voice(request: StreamVoiceRequest):
                     current_carrier
                 )
 
-            # Get this conversation's previous messages.
             history = get_history(request.conversation_id)
             
             if current_usdot_number:
@@ -3567,8 +3466,6 @@ def stream_voice(request: StreamVoiceRequest):
 
                         pending_carrier_reviews.pop(request.conversation_id, None)
 
-                        # The review is saved: this MC is done, so its
-                        # conversation memory is deleted automatically.
                         clear_conversation_memory(
                             request.conversation_id,
                             reason="carrier_review_saved",
@@ -3620,17 +3517,14 @@ def stream_voice(request: StreamVoiceRequest):
             }
 
 
-            # Build the prompt using the last 20 messages.
             messages = [
                 system_message,
                 *history[-HISTORY_MAX_MESSAGES:],
                 {"role": "user", "content": request.message},
             ]
 
-            # Collect the complete reply while streaming.
             assistant_reply_parts = []
 
-            # Generate Adam's answer incrementally.
             llm_stream = groq_client.chat.completions.create(
                 model="openai/gpt-oss-20b",
                 temperature=0.3,
@@ -3667,13 +3561,10 @@ def stream_voice(request: StreamVoiceRequest):
             def extract_sentence(text: str):
                 """Release short phrases early to reduce first-audio latency."""
 
-    # Speak immediately when a complete sentence is available.
                 match = re.search(r'[.!?](?:["\']?)(?:\s|$)', text)
                 if match:
                     return match.end()
 
-    # Otherwise, release a short phrase without waiting
-    # for the model to finish a long sentence.
                 if len(text) >= 32:
                     split_at = text.rfind(" ", 0, 32)
                     if split_at > 20:
@@ -3710,7 +3601,6 @@ def stream_voice(request: StreamVoiceRequest):
                         if audio_event:
                             yield make_sse_event(audio_event)
 
-            # Speak any remaining text after the model finishes.
             if buffer.strip():
                 audio_event = speak_chunk(buffer.strip())
                 if audio_event:
@@ -3719,10 +3609,6 @@ def stream_voice(request: StreamVoiceRequest):
             assistant_reply = "".join(assistant_reply_parts).strip()
 
             if assistant_reply:
-                # Save the turn only after the reply fully succeeded,
-                # so failed generations do not pollute the history.
-                # If the finished MC's memory was just cleared, stay
-                # clean instead of writing this closing turn back.
                 if not memory_cleared_this_turn:
                     history.append({
                         "role": "user",
@@ -3941,8 +3827,6 @@ def save_carrier_review(request: CarrierReviewRequest):
                     },
                 )
 
-                # A requested callback becomes a persistent scheduled task
-                # so it is not lost on restart and shows up when due.
                 if (
                     request.review_status == "callback_requested"
                     and request.follow_up_at is not None
@@ -4023,8 +3907,6 @@ def place_mock_call(request: MockCallRequest):
                         detail="Carrier USDOT number was not found.",
                     )
 
-                # Never create duplicate records for carriers whose
-                # consent history forbids further contact.
                 cur.execute(
                     """
                     SELECT 1
@@ -4516,8 +4398,6 @@ def get_next_carrier(conversation_id: str):
                 columns = [desc.name for desc in cur.description]
                 carrier = dict(zip(columns, row))
 
-                # A fresh MC was reserved: the previous carrier's
-                # conversation memory is no longer relevant.
                 clear_conversation_memory(
                     conversation_id,
                     reason="new_carrier_reserved",

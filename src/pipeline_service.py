@@ -26,11 +26,8 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RUNS_ROOT = PROJECT_ROOT / "output" / "pipeline_runs"
 
-# Load .env so FMCSA_WEB_KEY behaves the same as when running the
-# phase scripts directly.
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Rate limit between FMCSA API calls during the verify stage, seconds.
 FMCSA_CALL_DELAY = 0.25
 
 MAX_LOG_LINES = 400
@@ -43,7 +40,7 @@ class Job:
         self.job_id = job_id
         self.original_filename = original_filename
         self.created_at = datetime.now(timezone.utc).isoformat()
-        self.status = "running"  # running | done | failed
+        self.status = "running"
         self.error = None
         self.log_lines = []
         self.results = None
@@ -126,7 +123,6 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
     summary["imported"] = None
 
     try:
-        # ---- Stage 1: extract ------------------------------------------------
         stage = _stage(job, "extract")
         stage["status"] = "running"
         stage["detail"] = "Reading PDF"
@@ -151,7 +147,6 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
 
         _save(run_dir, "01_extracted.json", records)
 
-        # ---- Stage 2: prepare --------------------------------------------------
         stage = _stage(job, "prepare")
         stage["status"] = "running"
         stage["detail"] = "Grouping and classifying"
@@ -172,7 +167,6 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
 
         _save(run_dir, "02_prepared.json", prepared)
 
-        # ---- Stage 3: verify ----------------------------------------------------
         stage = _stage(job, "verify")
         stage["status"] = "running"
         stage["detail"] = "Calling FMCSA API"
@@ -234,7 +228,6 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
 
         _save(run_dir, "03_verified.json", working_records)
 
-        # ---- Stage 4: qualify ---------------------------------------------------
         stage = _stage(job, "qualify")
         stage["status"] = "running"
         stage["detail"] = "Scoring leads"
@@ -255,8 +248,6 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
             )
             verified = verified_by_usdot.get(usdot)
             if verified is None:
-                # Mirror qualify_leads.main(): score without verification
-                # flagged as missing_verification rather than dropped.
                 verified = {
                     "usdot_number": usdot,
                     "lookup_status": "missing_verification",
@@ -290,7 +281,6 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
 
         _save(run_dir, "04_qualified.json", leads)
 
-        # ---- Stage 5: import (optional, dry-run by default) ------------------------
         stage = _stage(job, "import")
         if not import_to_db:
             stage["status"] = "skipped"
@@ -323,7 +313,7 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
         job.status = "done"
         log("Pipeline job finished successfully.")
 
-    except Exception as error:  # noqa: BLE001 - the job fails, not the server
+    except Exception as error:
         if job.status != "done":
             job.status = "failed"
             job.error = str(error)

@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dispatch Agent — Call Console</title>
 <style>
-  /* ================= design tokens ================= */
   :root {
     --bg: #f3f7f4;
     --panel: #ffffff;
@@ -92,7 +91,6 @@
   .hidden { display: none !important; }
   .muted { color: var(--muted); }
 
-  /* ================= phone device ================= */
   #phoneCard { display: flex; gap: 18px; flex-wrap: wrap; }
   #screen {
     flex: 1 1 430px;
@@ -170,7 +168,6 @@
   .toggle { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: .84rem; }
   .toggle input { accent-color: var(--accent); width: auto; }
 
-  /* ================= side column ================= */
   .side-col { flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column; gap: 14px; }
   #hangupBtn {
     width: 100%; font-size: 1rem; padding: 14px 16px; border-radius: 14px;
@@ -213,7 +210,6 @@
     background: var(--panel-2); font-size: .88rem; line-height: 1.5;
   }
 
-  /* ================= incoming call ring ================= */
   #ring {
     position: fixed; inset: 0; z-index: 100; display: none;
     align-items: center; justify-content: center;
@@ -257,7 +253,6 @@
 </style>
 </head>
 <body>
-<!-- Incoming call ring -->
 <div id="ring">
   <div class="ringCard">
     <div class="avatar">ADAM</div>
@@ -288,7 +283,6 @@
   <p class="sub">Simulates an incoming carrier call. The agent talks about loads,
   remembers past conversations, and <strong>never</strong> changes any database record.</p>
 
-  <!-- Caller identity -->
   <div class="card" id="setupCard">
     <h2 class="card-title" style="font-size:1.02rem;margin:0 0 12px">Caller identity</h2>
     <div class="row">
@@ -311,7 +305,6 @@
       Fill at least one field. Repeat visitors resume automatically.</p>
   </div>
 
-  <!-- Phone device + side column -->
   <div class="card" style="padding:16px">
     <div id="phoneCard">
       <div id="screen">
@@ -341,7 +334,6 @@
         </form>
       </div>
 
-      <!-- Hang up + carrier dial list + recent callers -->
       <div class="side-col">
         <button id="hangupBtn" class="danger hidden">Hang up the call</button>
 
@@ -383,8 +375,6 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
 let token = sessionStorage.getItem("admin_token") ||
   localStorage.getItem("admin_token") || "";
 
-// If this browser has no saved token, ask the local server (localhost
-// only) to hand it over, so the operator never retypes it.
 fetch("/admin/api-token")
   .then(r => r.ok ? r.json() : null)
   .then(body => {
@@ -396,7 +386,7 @@ fetch("/admin/api-token")
       loadDialList();
     }
   })
-  .catch(() => {/* server unreachable — the prompt fallback still works */});
+  .catch(() => {});
 const authHeaders = () => ({
   ...(token ? { Authorization: "Bearer " + token } : {}),
   "Content-Type": "application/json",
@@ -411,9 +401,8 @@ function tokenMissing() {
   return false;
 }
 
-/* ===== Carriers to call: dial-ready list from the pipeline leads ===== */
-let dialAll = [];        // full list from the server
-let telephonyLive = null; // masked status fetched once
+let dialAll = [];
+let telephonyLive = null;
 
 function renderDialList() {
   const q = ($("dialSearch").value || "").trim().toLowerCase();
@@ -483,7 +472,6 @@ async function dialCarrier(carrier, btn) {
       btn.disabled = false;
       return;
     }
-    // Connect the receiver console to this carrier's session right here.
     location.href = body.auto_connect_url;
   } catch (err) {
     showStatus("Could not start the call: " + err.message);
@@ -518,12 +506,10 @@ $("dialSearch").addEventListener("input", renderDialList);
 let sessionId = null;
 let timerId = null;
 let recognition = null;
-let cameFromIncoming = false;   // true when the agent rang us and we answered
-let incomingAction = null;      // what to run if the driver accepts the ringing call
-let paramsSessionId = null;     // session id embedded in the auto-open URL
+let cameFromIncoming = false;
+let incomingAction = null;
+let paramsSessionId = null;
 
-// Voice agent is the DEFAULT way to talk once a call is answered;
-// the chat box stays available as the second option.
 function applyVoiceDefaults() {
   if (!cameFromIncoming) return;
   if ($("voiceOut")) $("voiceOut").checked = true;
@@ -533,7 +519,6 @@ function applyVoiceDefaults() {
   }
 }
 
-/* ===== Incoming call ring: the driver CHOOSES to answer or decline ===== */
 function showIncoming(subText) {
   $("ringSub").textContent = subText || "Incoming call from the dispatch agent…";
   $("ring").classList.add("show");
@@ -549,13 +534,12 @@ $("ringDecline").onclick = async () => {
   $("ring").classList.remove("show");
   incomingAction = null;
   showStatus("Call declined — no conversation started.");
-  // If a server-side session was pre-created, close it so it is a missed call.
   if (token && paramsSessionId) {
     try {
       await fetch("/call-sessions/" + paramsSessionId + "/end", {
         method: "POST", headers: authHeaders(),
       });
-    } catch { /* declined locally is enough */ }
+    } catch {  }
   }
 };
 
@@ -652,8 +636,8 @@ function stopTimer() {
   timerId = null;
 }
 
-let agentSpeaking = false;   // true while Adam's voice is playing
-let agentLastText = "";      // last thing Adam spoke (echo filter)
+let agentSpeaking = false;
+let agentLastText = "";
 
 function tokenOverlap(a, b) {
   const words = (x) => String(x || "").toLowerCase()
@@ -666,8 +650,6 @@ function tokenOverlap(a, b) {
   return common / Math.min(sa.size, sb.size);
 }
 
-// If the recognition result is just Adam hearing his own voice through
-// the speakers, ignore it; otherwise it is a real driver interruption.
 function looksLikeAgentEcho(text) {
   return tokenOverlap(text, agentLastText) > 0.55;
 }
@@ -750,10 +732,8 @@ $("micOn").onchange = (event) => {
   event.target.checked ? startMic() : stopMic();
 };
 
-// Big round Talk button on the phone screen: interrupt Adam or toggle mic.
 $("talkBtn").onclick = () => {
   if (agentSpeaking) {
-    // Tap while Adam is talking = stop him immediately and listen.
     agentSpeaking = false;
     window.speechSynthesis && window.speechSynthesis.cancel();
     addDivider("You interrupted — Adam stopped and listens to you now");
@@ -764,7 +744,7 @@ $("talkBtn").onclick = () => {
   else { $("micOn").checked = true; startMic(); }
 };
 
-let micActive = false;   // true while the mic is supposed to be on
+let micActive = false;
 
 function startMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -779,7 +759,7 @@ function startMic() {
   micActive = true;
   buildRecognition();
   updateTalkBtn();
-  try { recognition.start(); } catch { /* already started */ }
+  try { recognition.start(); } catch {  }
 }
 
 function buildRecognition() {
@@ -791,12 +771,8 @@ function buildRecognition() {
   recognition.onresult = (event) => {
     const text = event.results[event.results.length - 1][0].transcript.trim();
     if (!text) return;
-    // Adam's voice comes out of the speakers; the mic will sometimes
-    // transcribe his own words — ignore those, they are not the driver.
     if (looksLikeAgentEcho(text)) return;
     if (agentSpeaking) {
-      // BARGE-IN: driver started talking over Adam — stop him instantly
-      // and listen to the driver instead.
       agentSpeaking = false;
       window.speechSynthesis && window.speechSynthesis.cancel();
       addDivider("You interrupted — Adam stopped and listens to you now");
@@ -811,7 +787,6 @@ function buildRecognition() {
       updateTalkBtn();
       showStatus("Microphone blocked - allow mic access in the browser, then press the Talk button.");
     }
-    // other errors (no-speech / network / aborted) retry through onend
   };
   recognition.onend = () => {
     if (micActive) {
@@ -880,13 +855,12 @@ async function loadRecent() {
       };
       rows.appendChild(tr);
     }
-  } catch { /* keep previous view */ }
+  } catch {  }
 }
 
 loadRecent();
 loadDialList();
 
-// ==== Agent call incoming → ring first, driver chooses to answer ====
 (function initAutoConnect() {
   const params = new URLSearchParams(window.location.search);
   const auto = params.get("auto") === "1";
@@ -901,12 +875,10 @@ loadDialList();
   const who = company || person ||
     (usdot ? "USDOT " + usdot : phone ? phone : "Unknown carrier");
 
-  // If we have a session_id, resume that session on accept
   if (session) {
     paramsSessionId = session;
     incomingAction = () => resumeSession(session);
     showIncoming("Agent Adam is calling…");
-    // Read-only lookup so the ring shows WHO the agent is calling about.
     fetch("/call-sessions/" + session, {headers: authHeaders()})
       .then(r => r.ok ? r.json() : null)
       .then(s => {
@@ -920,7 +892,6 @@ loadDialList();
     return;
   }
 
-  // Otherwise, start a new call with the provided identity on accept
   if (usdot || phone || company || person) {
     if (usdot) $("fUsdot").value = usdot;
     if (phone) $("fPhone").value = phone;
@@ -948,8 +919,6 @@ async function resumeSession(targetSessionId) {
     }
     const session = await res.json();
 
-    // An already-ended session cannot take messages: start a fresh call
-    // with the same identity instead.
     if (session.status !== "open") {
       showStatus("Session already ended — starting a fresh call.");
       $("fUsdot").value = session.usdot_number || "";
@@ -981,8 +950,6 @@ async function resumeSession(targetSessionId) {
     if (session.resumed_from) {
       addDivider("Previous conversation — resuming where you left off");
     }
-    // The transcript already contains the newest agent message (greeting
-    // or continuation); only speak it, it has already been displayed.
     const lastMsg = session.transcript && session.transcript[session.transcript.length - 1];
     applyVoiceDefaults();
     if (lastMsg && lastMsg.role === "assistant") {

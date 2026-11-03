@@ -7,7 +7,6 @@ from groq import Groq
 from elevenlabs.client import ElevenLabs
 
 
-# Find the project root and load its .env file
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -21,7 +20,6 @@ if not elevenlabs_api_key:
     raise ValueError("ELEVENLABS_API_KEY is missing from the project .env file")
 
 
-# Initialize both AI services
 groq_client = Groq(api_key=groq_api_key)
 elevenlabs_client = ElevenLabs(api_key=elevenlabs_api_key)
 

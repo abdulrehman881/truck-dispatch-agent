@@ -11,12 +11,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src import extract_pdf, prepare_leads, qualify_leads  # noqa: E402
+from src import extract_pdf, prepare_leads, qualify_leads
 
 
-# --------------------------------------------------
-# Phase 1: helpers
-# --------------------------------------------------
 
 def test_normalize_usdot_keeps_digits_only():
     assert extract_pdf.normalize_usdot("USDOT 1234567") == "1234567"
@@ -59,7 +56,6 @@ def test_update_category_from_blocks_picks_nearest_heading():
         current_category=current,
     )
     assert "MOTOR CARRIER OF PROPERTY" in current
-    # Headings below the table top are ignored.
     assert "ACME" not in current
 
 
@@ -86,14 +82,12 @@ def test_extraction_summary_reconciles_counts():
     ]
     summary = extract_pdf.create_summary(records, ["f.pdf"], [])
 
-    # Total equals the sum of records processed; duplicates detected.
     assert summary["total_records"] == 2
     assert summary["unique_usdot_numbers"] == 1
     assert summary["duplicate_usdot_numbers"] == 1
     assert summary["duplicate_usdot_details"] == {"123": 2}
     assert summary["pdf_files_failed"] == 0
 
-    # Every missing-field counter must match the records themselves.
     assert summary["records_missing_phone"] == 1
     assert summary["records_missing_category"] == 1
     assert summary["records_missing_address"] == 1
@@ -101,9 +95,6 @@ def test_extraction_summary_reconciles_counts():
     assert summary["records_with_invalid_phone_format"] == 1
 
 
-# --------------------------------------------------
-# Phase 2 of the pipeline: filtering and review
-# --------------------------------------------------
 
 def _record(usdot, name, phone, category):
     return {
@@ -134,14 +125,12 @@ def test_prepare_leads_groups_and_cleans_conflicts():
 
     result = prepare_leads.process_records(records)
 
-    # Two candidate USDOT groups (the missing-usdot record is excluded).
     assert result["unique_usdot_count"] == 2
     assert result["unique_usdot_count"] == len(
         {r["usdot_number"] for r in result["candidates"]}
     )
     assert len(result["candidates"]) == 2
 
-    # The conflicting group is routed into review with a reason.
     conflict_review = [
         r
         for r in result["review_queue"]
@@ -150,7 +139,6 @@ def test_prepare_leads_groups_and_cleans_conflicts():
     assert conflict_review
     assert "conflicting_company_names" in conflict_review[0]["review_reasons"]
 
-    # The missing-usdot record is reported separately with its reason.
     missing_reviews = [r for r in result["review_queue"] if "reason" in r]
     assert missing_reviews
     assert missing_reviews[0]["reason"] == "missing_usdot_number"
@@ -164,14 +152,10 @@ def test_prepare_leads_does_not_invent_values():
     assert candidate["legal_business_name"] == "Clean Movers LLC"
     assert candidate["business_telephone"] == "5551234567"
 
-    # Since clean, no review requirements were fabricated.
     assert candidate["review_reasons"] == []
     assert candidate["review_required"] is False
 
 
-# --------------------------------------------------
-# Phase 4 of the pipeline: scoring
-# --------------------------------------------------
 
 def _verified(**overrides):
     verified = {
@@ -210,7 +194,6 @@ def test_fully_verified_carrier_scores_max():
     assert lead["priority"] == "high"
     assert lead["basic_qualification_passed"] is True
     assert lead["review_required"] is False
-    # No fabricated fields: the identity match is a real comparison.
     assert lead["identity_match"] is True
 
 
@@ -245,7 +228,6 @@ def test_passenger_and_household_goods_do_not_match_target_category():
         _candidate(categories=("MOTOR CARRIER OF PASSENGERS",)),
         _verified(),
     )
-    # Category match contributes 10 points and is required to qualify.
     assert lead["lead_score"] == 90
     assert lead["basic_qualification_passed"] is False
 

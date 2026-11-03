@@ -57,7 +57,6 @@ def real_pdf_path():
 
 def _run_job(pdf_path, monkeypatch, import_to_db=False, max_records=150):
     """Run a pipeline job synchronously (in-process, no thread)."""
-    # Skip FMCSA verification (no key in the test env) but record it as skipped.
     monkeypatch.delenv("FMCSA_WEB_KEY", raising=False)
 
     job = pipeline_service.registry.create(pdf_path.name)
@@ -76,8 +75,6 @@ def test_pipeline_extracts_classifies_and_qualifies(monkeypatch):
 
     assert job.status == "done", job.log_lines
     statuses = {s["name"]: s["status"] for s in job.stages}
-    # extract/prepare/qualify ran; verify skipped without FMCSA_WEB_KEY;
-    # import skipped in dry-run mode.
     assert statuses["extract"] == "done"
     assert statuses["prepare"] == "done"
     assert statuses["verify"] == "skipped"
@@ -128,14 +125,11 @@ def test_pipeline_import_stage(monkeypatch):
     run_dir = pipeline_service.RUNS_ROOT / job.job_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Patch the extraction to return records without needing a real PDF.
     import extract_pdf
     monkeypatch.setattr(
         extract_pdf, "extract_pdf", lambda path: [sample_record()]
     )
 
-    # Patch the psycopg connect to avoid real network — the monkeypatched
-    # upsert_records never touches a cursor, but connect() is still called.
     class FakePsycopg:
         @staticmethod
         def connect(**config):
@@ -151,7 +145,6 @@ def test_pipeline_import_stage(monkeypatch):
     statuses = {s["name"]: s["status"] for s in job.stages}
     assert statuses["import"] == "done"
     assert len(executed) == job.results["imported"]
-    # Records passed to the DB layer carry lead scores and priorities.
     assert all("lead_score" in record for record in executed)
 
 
@@ -174,7 +167,6 @@ def tmp_probe_pdf():
 def test_pipeline_status_endpoint_auth_and_flow(monkeypatch):
     job = _run_job(real_pdf_path(), monkeypatch)
 
-    # Unknown job -> 404 (with valid token); unauthenticated -> 401.
     assert authed.get("/pipeline/status/doesnotexist").status_code == 404
     assert client.get("/pipeline/status/" + job.job_id).status_code == 401
 
@@ -207,7 +199,6 @@ def test_pipeline_page_is_public():
 
 
 def test_pdf_upload_validations():
-    # Non-PDF rejected
     res = authed.post(
         "/pipeline/upload",
         files={"file": ("x.txt", b"not a pdf", "text/plain")},

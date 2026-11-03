@@ -9,9 +9,6 @@ from dotenv import load_dotenv
 import requests
 
 
-# --------------------------------------------------
-# 1. CONFIGURATION
-# --------------------------------------------------
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_DIR / ".env")
@@ -23,16 +20,12 @@ ERROR_FILE = OUTPUT_DIR / "phase3_errors.json"
 
 BASE_URL = "https://mobile.fmcsa.dot.gov/qc/services"
 
-# Keep at 5 until the corrected output is confirmed.
 MAX_RECORDS = None
 
 REQUEST_DELAY_SECONDS = 0.5
 TIMEOUT_SECONDS = 20
 
 
-# --------------------------------------------------
-# 2. HELPER FUNCTIONS
-# --------------------------------------------------
 
 def save_json(path, data):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,8 +87,6 @@ def fetch_endpoint(session, usdot, endpoint, api_key):
     )
 
     if not response.ok:
-        # Do not print the complete request URL:
-        # the URL contains the WebKey as a query parameter.
         print(f"  HTTP status: {response.status_code}")
 
         raise requests.HTTPError(
@@ -117,7 +108,6 @@ def extract_carrier(api_response):
         if isinstance(carrier, dict):
             return carrier
 
-    # Support an API response where content is a list.
     if isinstance(content, list):
         for item in content:
             if isinstance(item, dict):
@@ -126,16 +116,12 @@ def extract_carrier(api_response):
                 if isinstance(carrier, dict):
                     return carrier
 
-                # Some API responses may contain the fields directly.
                 if "dotNumber" in item or "legalName" in item:
                     return item
 
     return {}
 
 
-# --------------------------------------------------
-# 3. VERIFY ONE CARRIER
-# --------------------------------------------------
 
 def verify_carrier(session, candidate, api_key):
     usdot = candidate.get("usdot_number")
@@ -180,17 +166,14 @@ def verify_carrier(session, candidate, api_key):
     }
 
     try:
-        # First request: main carrier record.
         carrier_response = fetch_endpoint(
             session, usdot, "", api_key
         )
 
         carrier = extract_carrier(carrier_response)
 
-# Do not retain EIN: it is unnecessary for lead generation.
         carrier.pop("ein", None)
 
-# Save the remaining raw response for auditing.
         result["raw_carrier_response"] = carrier_response
 
         if not carrier:
@@ -200,13 +183,11 @@ def verify_carrier(session, candidate, api_key):
             )
             return result
 
-        # Extract known fields directly from the carrier object.
         official_dot = carrier.get("dotNumber")
         official_name = carrier.get("legalName")
 
         result["official_legal_name"] = official_name
 
-        # The main carrier response may not contain a phone number.
         result["official_phone"] = (
             carrier.get("telephone")
             or carrier.get("phone")
@@ -218,7 +199,6 @@ def verify_carrier(session, candidate, api_key):
                 == normalize_usdot(usdot)
             )
 
-        # Map status and fleet fields from the MAIN response.
         result["allow_to_operate"] = carrier.get(
             "allowedToOperate"
         )
@@ -243,15 +223,11 @@ def verify_carrier(session, candidate, api_key):
             "totalDrivers"
         )
 
-        # A missing out-of-service date does not by itself
-        # prove that a carrier is in service.
         result["out_of_service_date"] = carrier.get("oosDate")
 
-        # Use an explicit boolean only if the API supplies one.
         if isinstance(carrier.get("outOfService"), bool):
             result["out_of_service"] = carrier["outOfService"]
 
-        # Second request: additional BASICs data.
         try:
             basics_response = fetch_endpoint(
                 session, usdot, "basics", api_key
@@ -259,8 +235,6 @@ def verify_carrier(session, candidate, api_key):
 
             result["raw_basics_response"] = basics_response
 
-            # The endpoint may legitimately return an empty list.
-            # Keep the raw response so we can inspect it later.
 
         except requests.RequestException as error:
             result["errors"].append(
@@ -272,7 +246,6 @@ def verify_carrier(session, candidate, api_key):
                 f"Could not parse basics response: {error}"
             )
 
-        # Determine whether identity was confirmed.
         if result["identity_match"] is False:
             result["lookup_status"] = "needs_manual_review"
             result["errors"].append(
@@ -312,9 +285,6 @@ def verify_carrier(session, candidate, api_key):
     return result
 
 
-# --------------------------------------------------
-# 4. MAIN
-# --------------------------------------------------
 
 def main():
     api_key = os.getenv("FMCSA_WEB_KEY")
@@ -381,7 +351,6 @@ def main():
                     "errors": result["errors"],
                 })
 
-            # Save progress after every carrier.
             save_json(OUTPUT_FILE, verified_results)
             save_json(ERROR_FILE, errors)
 

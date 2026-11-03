@@ -28,9 +28,6 @@ PROTECTED_PATHS = [
 client = TestClient(main.app)
 
 
-# --------------------------------------------------
-# Protected endpoints: rejection cases
-# --------------------------------------------------
 
 def test_metrics_requires_token():
     assert client.get("/metrics").status_code == 401
@@ -97,9 +94,6 @@ def test_basic_auth_without_bearer_is_rejected():
     assert response.status_code == 401
 
 
-# --------------------------------------------------
-# Authenticated requests pass the guard (mocked DB)
-# --------------------------------------------------
 
 def test_authenticated_metrics_passes_guard(monkeypatch):
     class FakeCursor:
@@ -151,9 +145,6 @@ def test_invalid_token_is_not_leaked_in_response():
     assert "hunter2" not in str(body)
 
 
-# --------------------------------------------------
-# Fail-closed when no token is configured
-# --------------------------------------------------
 
 def test_unconfigured_token_fails_closed(monkeypatch):
     monkeypatch.setattr(main, "ADMIN_API_TOKEN", None, raising=False)
@@ -161,14 +152,10 @@ def test_unconfigured_token_fails_closed(monkeypatch):
     response = TestClient(main.app).get("/metrics")
     assert response.status_code == 503
 
-    # Even a correct token is refused until an operator configures one.
     response = TestClient(main.app, headers=AUTHED).get("/metrics")
     assert response.status_code == 503
 
 
-# --------------------------------------------------
-# Local token bootstrap: the UI never asks the operator to retype
-# --------------------------------------------------
 
 def test_api_token_bootstrap_hands_token_to_local_ui():
     """Localhost browser may fetch the token once (operator convenience)."""
@@ -205,9 +192,6 @@ def test_api_token_bootstrap_unconfigured_fails_closed(monkeypatch):
     assert response.status_code == 503
 
 
-# --------------------------------------------------
-# Public endpoints must never require the token
-# --------------------------------------------------
 
 def test_health_is_public():
     response = client.get("/health")

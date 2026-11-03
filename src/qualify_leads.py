@@ -4,9 +4,6 @@ import json
 from pathlib import Path
 
 
-# --------------------------------------------------
-# 1. CONFIGURATION
-# --------------------------------------------------
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = PROJECT_DIR / "output"
@@ -19,9 +16,6 @@ QUALIFIED_CSV = OUTPUT_DIR / "qualified_leads.csv"
 REVIEW_JSON = OUTPUT_DIR / "leads_needing_review.json"
 
 
-# --------------------------------------------------
-# 2. HELPER FUNCTIONS
-# --------------------------------------------------
 
 def load_json(path):
     if not path.exists():
@@ -73,9 +67,6 @@ def get_categories(candidate):
     return []
 
 
-# --------------------------------------------------
-# 3. SCORE ONE CARRIER
-# --------------------------------------------------
 
 def qualify_carrier(candidate, verified):
     score = 0
@@ -106,14 +97,12 @@ def qualify_carrier(candidate, verified):
         or verified.get("source_phone")
     )
 
-    # 30 points: official identity match
     if identity_match:
         score += 30
         reasons.append("USDOT identity confirmed")
     else:
         review_reasons.append("USDOT identity not confirmed")
 
-    # 25 points: FMCSA allowed-to-operate flag
     if allowed == "Y":
         score += 25
         reasons.append("FMCSA reports allowed to operate")
@@ -126,7 +115,6 @@ def qualify_carrier(candidate, verified):
             "Operating permission is unknown"
         )
 
-    # 15 points: carrier status code
     if status_code == "A":
         score += 15
         reasons.append("FMCSA status code is A")
@@ -137,7 +125,6 @@ def qualify_carrier(candidate, verified):
             f"Carrier status code is {status_code}"
         )
 
-    # 10 points: fleet size available
     if fleet is not None:
         try:
             fleet_number = int(fleet)
@@ -158,14 +145,12 @@ def qualify_carrier(candidate, verified):
     else:
         review_reasons.append("Fleet size is unknown")
 
-    # 10 points: a business contact phone is available
     if phone:
         score += 10
         reasons.append("Business phone available")
     else:
         review_reasons.append("No phone number available")
 
-    # 10 points: target business category
     if category_match:
         score += 10
         reasons.append(
@@ -185,8 +170,6 @@ def qualify_carrier(candidate, verified):
 
     lookup_status = verified.get("lookup_status")
 
-    # A score alone does not authorize outreach.
-    # Failed or incomplete checks require review.
     review_required = (
         not identity_match
         or lookup_status != "response_received"
@@ -197,7 +180,6 @@ def qualify_carrier(candidate, verified):
         or fleet is None
     )
 
-    # Only identify leads that pass these basic checks.
     basic_qualification_passed = (
         identity_match
         and lookup_status == "response_received"
@@ -247,15 +229,11 @@ def qualify_carrier(candidate, verified):
     }
 
 
-# --------------------------------------------------
-# 4. MAIN PIPELINE
-# --------------------------------------------------
 
 def main():
     candidates = load_json(CANDIDATES_FILE)
     verified_records = load_json(VERIFIED_FILE)
 
-    # Index verification records by USDOT number.
     verified_by_usdot = {
         normalize_usdot(item.get("usdot_number")): item
         for item in verified_records
@@ -298,14 +276,12 @@ def main():
         if lead["review_required"]:
             review_queue.append(lead)
 
-    # Highest scores first.
     qualified.sort(
         key=lambda item: item["lead_score"],
         reverse=True,
     )
 
     save_data = [
-        # Keep only lead-generation fields in these exports.
         item for item in qualified
     ]
 
@@ -327,7 +303,6 @@ def main():
             ensure_ascii=False,
         )
 
-    # Flat fields make the CSV easy to use in Excel.
     csv_fields = [
         "usdot_number",
         "company_name",

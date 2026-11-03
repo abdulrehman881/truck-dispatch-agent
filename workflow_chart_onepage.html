@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <title>TruckDispatchAgent — Complete Workflow (One-Page Big Chart)</title>
 <style>
-  /* ONE giant page: everything on a single sheet like a big wall chart */
   @page {
     size: 8200px 3000px;
     margin: 0;
@@ -31,7 +30,6 @@
     padding: 14px 30px; font-size: 30px; font-weight: 600;
   }
   .sw { width: 46px; height: 26px; border-radius: 8px; display: inline-block; }
-  /* the chart fills the rest of the page */
   .chart { flex: 1; display: flex; align-items: center; justify-content: center; }
   .mermaid svg { display: block; }
   footer {
@@ -151,8 +149,6 @@ flowchart LR
 
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
 <script>
-  // Initialize immediately (script at end of body, before DOMContentLoaded),
-  // so the flowchart config actually applies.
   window.mermaid.initialize({
     startOnLoad: true,
     theme: "base",
@@ -162,7 +158,7 @@ flowchart LR
     },
     flowchart: {
       curve: "basis",
-      useMaxWidth: false,      /* natural size — big chart, not squeezed */
+      useMaxWidth: false,
       htmlLabels: true,
       nodeSpacing: 260,
       rankSpacing: 320,
@@ -171,7 +167,6 @@ flowchart LR
     securityLevel: "loose",
   });
 
-  // After render, fit the chart ON ONE PAGE no matter how large it drew.
   (function fitLoop() {
     let attempts = 0;
     const timer = setInterval(() => {
@@ -183,8 +178,8 @@ flowchart LR
       const vb = (svg.getAttribute("viewBox") || "").split(/\s+/).map(Number);
       if (vb.length !== 4) return;
       const natW = vb[2], natH = vb[3];
-      const availW = 7800;                 /* body 8200 - padding */
-      const availH = 2300;                 /* page minus header/footer */
+      const availW = 7800;
+      const availH = 2300;
       const scale = Math.min(availW / natW, availH / natH, 1.8);
       svg.style.width = (natW * scale) + "px";
       svg.style.height = (natH * scale) + "px";

@@ -6,9 +6,6 @@ from datetime import datetime
 from pathlib import Path
 
 
-# --------------------------------------------------
-# 1. PROJECT PATHS
-# --------------------------------------------------
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = PROJECT_DIR / "output"
@@ -20,9 +17,6 @@ REVIEW_FILE = OUTPUT_DIR / "phase2_review_queue.json"
 SUMMARY_FILE = OUTPUT_DIR / "phase2_summary.json"
 
 
-# --------------------------------------------------
-# 2. HELPER FUNCTIONS
-# --------------------------------------------------
 
 def clean_text(value):
     if value is None:
@@ -84,9 +78,6 @@ def unique_values(records, field, normalizer=clean_text):
     return list(found.values())
 
 
-# --------------------------------------------------
-# 3. LOAD PIPELINE 1 OUTPUT
-# --------------------------------------------------
 
 def load_records():
     if not INPUT_FILE.exists():
@@ -106,9 +97,6 @@ def load_records():
     return records
 
 
-# --------------------------------------------------
-# 4. GROUP RECORDS BY USDOT
-# --------------------------------------------------
 
 def group_by_usdot(records):
     """
@@ -132,15 +120,11 @@ def group_by_usdot(records):
             })
             continue
 
-        # Use the normalized identifier as the group key.
         groups[usdot].append(record)
 
     return groups, missing_usdot
 
 
-# --------------------------------------------------
-# 5. PREPARE CANDIDATES AND REVIEW QUEUE
-# --------------------------------------------------
 
 def process_records(records):
     groups, missing_usdot = group_by_usdot(records)
@@ -189,7 +173,6 @@ def process_records(records):
 
         duplicate = len(source_records) > 1
 
-        # Different names, phones, or addresses need review.
         name_conflict = len(names) > 1
         phone_conflict = len(phones) > 1
         address_conflict = len(addresses) > 1
@@ -227,7 +210,6 @@ def process_records(records):
         ):
             conflicting_groups += 1
 
-        # Store all source rows for traceability.
         candidate = {
             "usdot_number": usdot,
             "legal_business_name": names[0] if names else None,
@@ -251,12 +233,9 @@ def process_records(records):
             "review_reasons": reasons,
         }
 
-        # A motor-carrier category makes this a candidate.
-        # It does not prove active authority or fleet size.
         if has_carrier:
             candidates.append(candidate)
 
-        # Route uncertain or conflicting groups to review.
         if reasons:
             review_queue.append({
                 "usdot_number": usdot,
@@ -283,9 +262,6 @@ def process_records(records):
     }
 
 
-# --------------------------------------------------
-# 6. SAVE OUTPUT FILES
-# --------------------------------------------------
 
 def save_json(path, data):
     with path.open("w", encoding="utf-8") as file:
@@ -297,9 +273,6 @@ def save_json(path, data):
         )
 
 
-# --------------------------------------------------
-# 7. MAIN
-# --------------------------------------------------
 
 def main():
     print("Starting Phase 2: Lead filtering and review...\n")

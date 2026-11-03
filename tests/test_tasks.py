@@ -95,9 +95,6 @@ def _task_dict(row):
     return main._task_row_to_dict(row)
 
 
-# --------------------------------------------------
-# Storage helpers
-# --------------------------------------------------
 
 def test_create_task_reminder(monkeypatch):
     cursor = _install(monkeypatch, _Cursor(fetches=[REMINDER_ROW]))
@@ -188,9 +185,6 @@ def test_update_task_status_missing_returns_none(monkeypatch):
     assert main.update_task_status(999, "done") is None
 
 
-# --------------------------------------------------
-# Worker: pending -> due, never dials
-# --------------------------------------------------
 
 def test_process_due_tasks_marks_due_without_calling(monkeypatch):
     cursor = _install(
@@ -211,7 +205,6 @@ def test_process_due_tasks_marks_due_without_calling(monkeypatch):
     assert "status = 'due'" in update_sql
     assert update_params == (7,)
 
-    # The worker only updates task rows: it must never touch call tables.
     every_sql = " ".join(call[0] for call in cursor.calls)
     assert "carrier_call_attempts" not in every_sql
     assert "INSERT INTO public.carrier_reviews" not in every_sql
@@ -223,9 +216,6 @@ def test_process_due_tasks_nothing_due(monkeypatch):
     assert len(cursor.calls) == 1
 
 
-# --------------------------------------------------
-# A callback review creates its scheduled task
-# --------------------------------------------------
 
 def test_callback_review_creates_callback_task(monkeypatch):
     cursor = _install(
@@ -245,7 +235,6 @@ def test_callback_review_creates_callback_task(monkeypatch):
     assert result["success"] is True
     insert_sql = [call[0] for call in cursor.calls if "INSERT INTO public.scheduled_tasks" in call[0]]
     assert len(insert_sql) == 1
-    # Cancels any older active callback task for the same carrier first.
     assert any(
         "UPDATE public.scheduled_tasks" in call[0] for call in cursor.calls
     )
@@ -268,9 +257,6 @@ def test_interested_review_creates_no_callback_task(monkeypatch):
     )
 
 
-# --------------------------------------------------
-# HTTP endpoints
-# --------------------------------------------------
 
 def test_tasks_require_admin_token():
     assert client.get("/tasks").status_code == 401
@@ -335,9 +321,6 @@ def test_complete_missing_task_is_404(monkeypatch):
     assert authed.post("/tasks/999/done").status_code == 404
 
 
-# --------------------------------------------------
-# Assistant commands
-# --------------------------------------------------
 
 def test_assistant_add_reminder(monkeypatch):
     monkeypatch.setattr(
