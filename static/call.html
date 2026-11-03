@@ -89,6 +89,64 @@
   button.danger { background: #dc2626; border-color: #dc2626; }
   button.danger:hover { background: #991b1b; border-color: #991b1b; }
   .hidden { display: none !important; }
+  .topnav {
+    display: flex; align-items: center; gap: 12px;
+    position: relative; margin: 0 0 18px;
+  }
+  .menu-btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    background: var(--panel); border: 1px solid var(--border-strong);
+    border-radius: 10px; padding: 9px 14px; cursor: pointer;
+    font: inherit; font-weight: 600; color: var(--ink);
+    box-shadow: var(--shadow-sm); transition: all var(--ease);
+  }
+  .menu-btn:hover { border-color: var(--accent-mid); }
+  .menu-btn .ico {
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .side-panel {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
+    width: 280px; color: #e9f3ec;
+    background: linear-gradient(180deg, #0d3b26, #0a2c1c);
+    border-right: 1px solid rgba(255, 255, 255, .08);
+    box-shadow: var(--shadow-md, 0 18px 50px rgba(13, 43, 30, .14));
+    transform: translateX(-102%);
+    transition: transform .22s ease;
+    display: flex; flex-direction: column;
+    padding: 18px 14px 16px;
+    overflow-y: auto;
+  }
+  .side-panel.open { transform: translateX(0); }
+  .side-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, .1);
+    margin-bottom: 14px;
+  }
+  .side-head b { font-size: .95rem; letter-spacing: -.01em; color: #fff; }
+  .side-head button {
+    margin-left: auto;
+    background: rgba(255, 255, 255, .08);
+    color: #e9f3ec; border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 9px; width: 28px; height: 28px; flex: 0 0 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0;
+  }
+  .side-head button:hover { background: rgba(255, 255, 255, .18); }
+  .side-item {
+    display: flex; flex-direction: column; gap: 2px;
+    background: none; border: 1px solid transparent;
+    color: #dcefe3; text-align: left; font: inherit; font-weight: 600;
+    border-radius: 11px; padding: 11px 12px; margin-bottom: 4px;
+    text-decoration: none; font-size: .92rem; line-height: 1.35;
+    transition: all var(--ease);
+  }
+  .side-item:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+  .side-item.active {
+    background: rgba(34, 197, 94, .18);
+    border-color: rgba(34, 197, 94, .5);
+    color: #ffffff;
+  }
   .muted { color: var(--muted); }
 
   #phoneCard { display: flex; gap: 18px; flex-wrap: wrap; }
@@ -268,6 +326,36 @@
 </div>
 
 <div class="wrap">
+  <nav class="topnav">
+    <button class="menu-btn" id="menuBtn" type="button"
+            title="Open the navigation sidebar">
+      <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 6h16M4 12h16M4 18h16"></path>
+      </svg></span>
+      Menu
+    </button>
+  </nav>
+  <aside class="side-panel" id="menuPanel" aria-hidden="true">
+    <div class="side-head">
+      <b>TruckDispatchAgent</b>
+      <button id="sideCloseBtn" type="button" title="Close the sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"></path>
+        </svg>
+      </button>
+    </div>
+    <a class="side-item" href="/pipeline">
+      Operator console - chat and pipeline
+    </a>
+    <a class="side-item active" href="/call">
+      Call console (this page)
+    </a>
+    <a class="side-item" href="/telephony">
+      Telephony API settings
+    </a>
+  </aside>
   <div class="page-head">
     <div class="brand-mark" aria-hidden="true">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff"
@@ -860,6 +948,24 @@ async function loadRecent() {
 
 loadRecent();
 loadDialList();
+
+const navPanel = document.getElementById("menuPanel");
+function closeNavSidebar() {
+  navPanel.classList.remove("open");
+  navPanel.setAttribute("aria-hidden", "true");
+}
+document.getElementById("menuBtn").onclick = () => {
+  const open = !navPanel.classList.contains("open");
+  navPanel.classList.toggle("open", open);
+  navPanel.setAttribute("aria-hidden", open ? "false" : "true");
+};
+document.getElementById("sideCloseBtn").onclick = closeNavSidebar;
+navPanel.querySelectorAll(".side-item").forEach(item => {
+  item.onclick = () => closeNavSidebar();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeNavSidebar();
+});
 
 (function initAutoConnect() {
   const params = new URLSearchParams(window.location.search);
