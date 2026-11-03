@@ -750,6 +750,34 @@ invalid_number, failed — covered by tests.
 > empty per operator request. Docker needed a restart again after a
 > connection-timeout episode; byte scans clean on all three HTML
 > files (no emojis, no missing ids).
+>
+> **Code review + project-wide comment removal (2026-11-03, commit
+> 38b58f6):** operator request: check the whole project for mistakes
+> and unwanted code, then remove every comment. Review findings: no
+> duplicate or unused imports; every HTML page is routed (voice.html
+> via /ui, dashboard via /dashboard); renamed the mistyped private
+> helper `_teleonomy_status_dict` → `_telephony_status_dict` (4
+> references); the 22 remaining `print(...)` calls in main.py are
+> 500-handler error fallbacks (kept). Comments removed with separate
+> tooling: Python files (25) via a tokenize-based stripper that never
+> touches `#` inside strings, lines emptied by the removal dropped,
+> all files re-compiled; HTML files (pipeline, call, telephony,
+> dashboard, voice, workflow_chart_onepage) via a character-level
+> state machine handling `'`/`"` strings, `\\` escapes, `${}`
+> template expressions and regex literals, so only `//`, `/* */` and
+> `<!-- -->` regions are removed — verified against the files'
+> largest removed ranges. Docstrings kept (they are runtime strings
+> powering FastAPI docs and test descriptions). Markdown/env/SQL
+> untouched. First HTML attempt (line-based) destroyed pipeline.html
+> and was caught by `test_pipeline_page_is_public`; file restored
+> from git and the state-machine stripper became the final tool.
+> Verification: py_compile 25/25; full suite **248 passed / 0 failed
+> / 1 skipped**; Docker down again (relaunched); all 5 served pages
+> HTTP 200 with 0 residual comments; browser: pipeline (6 side
+> links, view switching, call link new tab), telephony (menu sidebar
+> open/Escape/new-tab call link), call (dial panel, search JS runs),
+> /ui (voice.html) render; byte scans clean (no emojis). Working
+> tree clean after commit.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
