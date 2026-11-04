@@ -778,6 +778,41 @@ invalid_number, failed — covered by tests.
 > open/Escape/new-tab call link), call (dial panel, search JS runs),
 > /ui (voice.html) render; byte scans clean (no emojis). Working
 > tree clean after commit.
+>
+> **Neon cloud database online (2026-11-04, commit f50675b):**
+> operator request: run the app online, so free cloud DB chosen over
+> local Docker. Neon free plan verified for 2026: always free, no
+> card, 1 GB storage/project, 100 CU-hours/month, scale-to-zero after
+> 5 min idle with auto-resume. Setup via `neon` CLI 8.18.0 and
+> `neon init` (official prompt.md flow): org ARZ solutions
+> (`org-aged-silence-81363237`), region aws-us-east-2 (Ohio, operator
+> choice), project truck-dispatch (`delicate-cloud-38569113`), branch
+> main (`br-round-dawn-bef6xju2`); `.env` gained DATABASE_URL /
+> DATABASE_URL_UNPOOLED / NEON_BRANCH; `neon.ts` + node scaffold
+> committed (secret-free, verified by pattern scan); `.neon` and
+> `node_modules/` gitignored by Neon. Code: `get_db_connection()` in
+> main.py and new `connect_db()` in src/import_to_postgres.py are
+> DSN-first (DATABASE_URL wins; sslmode=require forced when missing;
+> sslmode must be enforced because Neon requires TLS), legacy
+> DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD kept as local fallback;
+> pipeline_service import stage refactored to `importer.connect_db()`
+> and its missing-credential guard now accepts either DSN or password.
+> Schema applied to Neon via psycopg from `sql/schema.sql` (Postgres
+> 18.6): carrier_leads, carrier_call_attempts, carrier_reviews,
+> operator_audit_log created; reconnect check passed (scale-to-zero
+> wake-up ~1 s). Data migration: none needed (local Docker DB was
+> empty per earlier operator request; daemon was down, port checked).
+> Scheduler made cloud-friendly: `TASK_SCHEDULER_POLL_SECONDS=900`
+> (15 min) appended to .env so idle CU-hours stay far under the free
+> limit (30 s polling would have burned ~180 CU-h/month); confirmed
+> loaded at startup as poll_seconds=900. Live checks: /health
+> healthy, /tasks 200, /admin/telephony/dial-list 200,
+> /admin/telephony 200 (masked) — all served against Neon. One test
+> fake updated (tests/test_pipeline_ui.py FakePsycopg.connect now
+> accepts positional args since connect_db may pass a DSN). Full
+> suite **249 passed / 0 failed / 0 skipped** (the previously skipped
+> DB-reachable test now passes against Neon). Secrets: never echoed;
+> PowerShell masking used for any DSN-adjacent output.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
