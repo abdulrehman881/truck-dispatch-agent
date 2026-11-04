@@ -1632,6 +1632,16 @@
           loadTasks();
         } else if (!tokenVal()) {
           tokenNote("");
+          const entered = prompt(
+            "This online console needs the operator access code. " +
+            "Paste the ADMIN_API_TOKEN value from the Render dashboard " +
+            "(Environment tab). It is stored in this browser only."
+          );
+          if (entered && entered.trim()) {
+            sessionStorage.setItem("admin_token", entered.trim());
+            try { localStorage.setItem("admin_token", entered.trim()); } catch {}
+            location.reload();
+          }
         }
       })
       .catch(() => {});
