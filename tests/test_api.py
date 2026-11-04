@@ -61,12 +61,13 @@ def db_available():
 
 
 def test_home():
-    response = client.get("/")
-    assert response.status_code == 200
-    assert response.json() == {
-        "status": "running",
-        "project": "TruckDispatchAgent",
-    }
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/pipeline"
+
+    followed = client.get("/")
+    assert followed.status_code == 200
+    assert "Operator console" in followed.text or "pipeline" in followed.text.lower()
 
 
 def test_health():

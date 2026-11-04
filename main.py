@@ -18,6 +18,7 @@ from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi import Depends, Form
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from groq import Groq
 from fastapi.responses import FileResponse
@@ -446,10 +447,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 def home():
-    return {
-        "status": "running",
-        "project": "TruckDispatchAgent",
-    }
+    return RedirectResponse("/pipeline", status_code=307)
 
 
 @app.get("/health")
