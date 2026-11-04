@@ -3,6 +3,7 @@ import csv
 import json
 import os
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from dotenv import load_dotenv
 import psycopg
@@ -21,6 +22,19 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD"),
 }
+
+
+def connect_db():
+    dsn = os.getenv("DATABASE_URL")
+    if dsn:
+        parts = urlsplit(dsn)
+        query = parse_qs(parts.query)
+        if "sslmode" not in query:
+            separator = "&" if parts.query else "?"
+            dsn += separator + "sslmode=require"
+        return psycopg.connect(dsn, connect_timeout=15)
+    return psycopg.connect(**DB_CONFIG)
+
 
 def get_value(record, *possible_names, default=None):
     """Return the first available value among possible field names."""
@@ -221,7 +235,7 @@ CREATE_TABLE_SQL = """
 
 
 def main():
-    if not DB_CONFIG["password"]:
+    if not (os.getenv("DATABASE_URL") or DB_CONFIG.get("password")):
         raise RuntimeError(
             "DB_PASSWORD is missing. "
             "Set it in your .env file or PowerShell session first."
@@ -245,7 +259,7 @@ def main():
             "No leads found. Check the structure of qualified_leads.json."
         )
 
-    with psycopg.connect(**DB_CONFIG) as connection:
+    with connect_db() as connection:
         with connection.cursor() as cursor:
 
             imported, skipped = upsert_records(cursor, records)

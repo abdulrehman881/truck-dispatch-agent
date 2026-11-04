@@ -293,14 +293,12 @@ def _run_pipeline(job, pdf_path, run_dir, import_to_db=False, max_records=None):
 
             import import_to_postgres as importer
 
-            if not importer.DB_CONFIG["password"]:
+            if not (os.getenv("DATABASE_URL") or importer.DB_CONFIG.get("password")):
                 raise RuntimeError(
                     "DB_PASSWORD is missing - cannot import to database"
                 )
 
-            with importer.psycopg.connect(
-                **importer.DB_CONFIG
-            ) as connection:
+            with importer.connect_db() as connection:
                 with connection.cursor() as cursor:
                     imported, _skipped = importer.upsert_records(cursor, leads)
 

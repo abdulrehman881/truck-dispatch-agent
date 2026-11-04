@@ -132,7 +132,7 @@ def test_pipeline_import_stage(monkeypatch):
 
     class FakePsycopg:
         @staticmethod
-        def connect(**config):
+        def connect(*args, **config):
             return FakeConnection()
 
     monkeypatch.setattr(importer.psycopg, "connect", FakePsycopg.connect)

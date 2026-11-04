@@ -28,3 +28,5 @@ data/*.pdf
 # Pipeline UI uploads and per-run outputs
 data/uploads/
 output/pipeline_runs/
+.neon
+node_modules/

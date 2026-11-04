@@ -104,6 +104,15 @@ def log_event(event: str, **fields):
 
 def get_db_connection():
     """Connect to the TruckDispatchAgent PostgreSQL database."""
+    cloud_url = os.getenv("DATABASE_URL")
+    if cloud_url:
+        parsed = urllib.parse.urlsplit(cloud_url)
+        query = urllib.parse.parse_qs(parsed.query)
+        if "sslmode" not in query:
+            separator = "&" if parsed.query else "?"
+            cloud_url += separator + "sslmode=require"
+        return psycopg.connect(cloud_url, connect_timeout=15)
+
     required = [
         "DB_HOST",
         "DB_PORT",
