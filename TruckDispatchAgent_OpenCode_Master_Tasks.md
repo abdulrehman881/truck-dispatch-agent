@@ -813,6 +813,18 @@ invalid_number, failed — covered by tests.
 > suite **249 passed / 0 failed / 0 skipped** (the previously skipped
 > DB-reachable test now passes against Neon). Secrets: never echoed;
 > PowerShell masking used for any DSN-adjacent output.
+>
+> **GitHub upload (2026-11-04):** operator request: upload the project
+> to GitHub. Repo **abdulrehman881/truck-dispatch-agent** created
+> PUBLIC via gh CLI 2.103.3 (zip distribution; winget MSI was blocked
+> by a stuck installer mutex); device-flow login as abdulrehman881,
+> git credential helper configured via `gh auth setup-git`; repo-local
+> identity set to abdulrehman881 + noreply email for future commits.
+> Pre-push secret audit: 51 commits scanned for DSN/api-key/npg_/sk-/
+> gsk_/twilio patterns — only test placeholder tokens
+> (test-admin-token etc.), no real secrets; git ls-files confirms .env
+> never tracked (only .env.example). Pushed master (42 files) with
+> full history; remote verified public.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
