@@ -844,9 +844,27 @@ invalid_number, failed — covered by tests.
 > /telephony /ui all 200, /tasks 401 without bearer (expected),
 > /admin/api-token 403 from public (loopback bridge stays local-only),
 > /admin/telephony 200 and /admin/telephony/dial-list 200 with bearer
-> from .env — cloud app perodically serving against the same Neon DB.
-> Free-plan expectation noted for the operator: ~15 min idle sleep,
-> ~50 s first-request cold start.
+> from .env — cloud app serving against the same Neon DB. Free-plan
+> expectation noted for the operator: ~15 min idle sleep, ~50 s
+> first-request cold start.
+>
+> **Deployed console access + unlock prompt (2026-11-04, commits
+> 7b120e6, ce44fc2):** operator reported the deployed chatbot returns
+> "Bearer token required": the /admin/api-token loopback bridge is
+> intentionally localhost-only, so the deployed UI has no token until
+> pasted once. Home URL now 307-redirects to /pipeline (was a bare
+> JSON status object); test_home updated to assert the redirect and
+> the followed page. Added a once-per-page unlock prompt to the
+> pipeline, call and telephony consoles: when the bridge is refused
+> and no token is stored, the page prompts for the ADMIN_API_TOKEN
+> (operator copies it from the Render dashboard Environment tab),
+> stores it in sessionStorage+localStorage and reloads; dashboard.html
+> already had a manual token box. Pushed `7b120e6` then `ce44fc2`
+> (Render redeploys automatically). Full suite **249 passed / 0 failed
+> / 0 skipped**. Did NOT make admin endpoints public as the operator
+> initially requested: FMCSA phone-number PII and metered
+> Groq/ElevenLabs credit usage stay token-protected; risks explained
+> to the operator.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
