@@ -825,6 +825,28 @@ invalid_number, failed — covered by tests.
 > (test-admin-token etc.), no real secrets; git ls-files confirms .env
 > never tracked (only .env.example). Pushed master (42 files) with
 > full history; remote verified public.
+>
+> **Render deployment LIVE (2026-11-04):** operator deployed the app
+> himself at https://truck-dispatch-agent.onrender.com/ (free web
+> service, GitHub auto-deploy from master). Supporting changes pushed:
+> requirements.txt with pinned runtime deps (fastapi, uvicorn,
+> psycopg[binary], python-dotenv, requests, elevenlabs, groq,
+> openpyxl, pymupdf, python-multipart) and .python-version 3.13. One
+> deploy failure round-trip: FastAPI form endpoints (/voice-chat
+> UploadFile/Form) need python-multipart, which was locally present in
+> the conda env but missing from requirements — pinned 0.0.32 added
+> (`3e13ea9`), redeploy then succeeded. Runtime env vars set by the
+> operator in the Render dashboard (never committed): DATABASE_URL,
+> ELEVENLABS_API_KEY, GROQ_API_KEY, ADMIN_API_TOKEN, FMCSA_WEB_KEY,
+> TASK_SCHEDULER_POLL_SECONDS=900; legacy DB_* hosts, UNPOOLED and
+> NEON_BRANCH intentionally omitted. Remote smoke test (values and
+> PII masked): / 200 running, /health 200 healthy, /pipeline /call
+> /telephony /ui all 200, /tasks 401 without bearer (expected),
+> /admin/api-token 403 from public (loopback bridge stays local-only),
+> /admin/telephony 200 and /admin/telephony/dial-list 200 with bearer
+> from .env — cloud app perodically serving against the same Neon DB.
+> Free-plan expectation noted for the operator: ~15 min idle sleep,
+> ~50 s first-request cold start.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
