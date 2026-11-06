@@ -865,6 +865,30 @@ invalid_number, failed — covered by tests.
 > initially requested: FMCSA phone-number PII and metered
 > Groq/ElevenLabs credit usage stay token-protected; risks explained
 > to the operator.
+>
+> **Portfolio demo video (2026-11-06):** operator asked for a demo
+> video for their portfolio. Approach: Playwright (pip 1.64.1)
+> headless recording; the chromium download itself failed twice with
+> connection resets, so recording used the existing system Edge via
+> channel="msedge"; playwright's small ffmpeg helper installed fine.
+> Seeded labelled demo rows in Neon so the screens have content:
+> 4 carrier_leads (DEMO-1001..1004 with 555-01xx demo phones, various
+> priorities/scores), 1 carrier_review (interested) + 1
+> callback_requested with scheduled callback backfill target, 2
+> carrier_call_attempts (completed + missed) and 2 future-dated
+> operator tasks. Snapshot recorded ~106 s at 1280x720: home redirect,
+> pipeline console scroll with title banners, sidebar
+> collapse/expand (menuBtn is hidden while the desktop sidebar is
+> open; used sideToggleBtn/menuBtn JS toggles), call console dial list
+> (4 carriers), telephony masked view, dashboard search "Sample",
+> voice page, closing banner with the live Render URL. Playwright
+> ffmpeg is a stripped build (no libx264) so the recording ships as
+> webm (7.5 MB) at output/TruckDispatchAgent_portfolio_demo.webm;
+> MP4 conversion rides on imageio-ffmpeg (pip retry in progress).
+> Reruns leave no orphan partial webm files (output/portfolio
+> cleared before/after). Demo rows intentionally remain in Neon until
+> the operator asks for cleanup; local suites are unaffected because
+> tests do not depend on demo data.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
