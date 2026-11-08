@@ -889,6 +889,33 @@ invalid_number, failed — covered by tests.
 > cleared before/after). Demo rows intentionally remain in Neon until
 > the operator asks for cleanup; local suites are unaffected because
 > tests do not depend on demo data.
+>
+> **Standalone Adam voice agent repo (2026-11-08):** operator requested
+> the Adam voice agent be split out into its own project and GitHub
+> repo. New folder `C:\Users\Rocky computer\Desktop\adam-voice-agent`
+> outside the main repo: `main.py` (self-contained FastAPI app with
+> /voice, /voice-chat, /stream-voice SSE streaming, in-memory
+> per-conversation history expiring after 1 hour, /health and a
+> /next-carrier compatibility stub returning an empty selection so the
+> original dispatch-edition voice UI works unchanged; Groq
+> whisper-large-v3-turbo STT, openai/gpt-oss-20b reasoning, ElevenLabs
+> eleven_flash_v2_5 TTS, voice id overridable via ADAM_VOICE_ID),
+> byte-identical copy of static/voice.html, pinned requirements.txt,
+> .env.example (placeholders only), .gitignore (.env ignored), and a
+> README with endpoints, SSE event shapes and setup. Local .env copied
+> from the main project (GROQ_API_KEY, ELEVENLABS_API_KEY; values never
+> echoed). Verified live on port 8125: /health healthy, /ui 200,
+> /next-carrier stub 200. Git repo initialized in the standalone
+> folder (an earlier command ran inside the main repo by mistake due
+> to the shell workdir quirk; tree was clean so nothing was staged),
+> commit `dec4839`, 6 tracked files; pre-push secret scan showed only
+> a regex false positive in .env.example (empty value + next-line key
+> name), no real secrets, .env untracked. Repo created and pushed with
+> `gh repo create adam-voice-agent --public --source . --remote
+> origin --push`; verified
+> https://github.com/abdulrehman881/adam-voice-agent PUBLIC, default
+> branch master, 6 files. Main repo code untouched; no test-suite
+> impact.
 
 -   [ ] Run all tests and report exact pass/fail/skip counts.
 -   [ ] Test `/health`, `/ui`, key API endpoints, PDF extraction,
